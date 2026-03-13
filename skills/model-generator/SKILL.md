@@ -1,9 +1,31 @@
 ---
 name: model-generator
-description: Automated CAD model generation workflow using SimpleCAD as intermediate layer. Generates models via simplecad-self-evolve, validates with visual-feedback, optionally exports to target CAD software. All results saved to sandbox/{model_name}/.
+description: |
+  Automated CAD model generation workflow using SimpleCAD as intermediate layer.
+  
+  MUST USE for ANY CAD model generation request. Trigger when user wants to create 3D models, CAD objects, geometries, or meshes in ANY software (FreeCAD, Blender, SolidWorks, etc.). 
+  
+  Trigger phrases: "create a xxx model", "generate xxx", "make xxx", "build xxx", "在xxx中创建模型", "使用xxx创建", "生成xxx模型", "帮我做xxx".
+  
+  CRITICAL: Always use this skill as the FIRST step. Do NOT write FreeCAD/Blender/etc. code directly - use this skill to generate SimpleCAD intermediate code first, then convert.
+  
+  Workflow: Parse input → Create sandbox/{model_name}/ → Generate SimpleCAD script → Execute → Visual validation → Optional export to target software.
 ---
 
 # Model Generator Skill
+
+## ⚠️ CRITICAL: ALWAYS USE THIS SKILL FIRST
+
+**When user says:**
+- "Create a gear model" → **USE THIS SKILL**
+- "在FreeCAD中创建一个杯子" → **USE THIS SKILL**
+- "使用Blender生成一个螺旋" → **USE THIS SKILL**
+- "Make a 3D cube" → **USE THIS SKILL**
+- "Generate a bracket in SolidWorks" → **USE THIS SKILL**
+
+**NEVER** write FreeCAD/Blender/SolidWorks code directly! Always call this skill first.
+
+---
 
 **Architecture: SimpleCAD as Intermediate Layer**
 
