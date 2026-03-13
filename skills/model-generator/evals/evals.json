@@ -1,0 +1,35 @@
+{
+  "skill_name": "model-generator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "创建一个齿轮模型",
+      "expected_output": "生成SimpleCAD齿轮模型，通过visual-feedback验证，保存到sandbox/gear/",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "在FreeCAD中创建一个杯子",
+      "expected_output": "生成SimpleCAD杯子模型，转换为FreeCAD API并在FreeCAD中创建，保存到sandbox/cup/",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把data/pointcloud.ply转换成3D模型",
+      "expected_output": "先用pointcloud-renderer渲染点云，然后生成模型，保存到sandbox/pointcloud/",
+      "files": ["data/pointcloud.ply"]
+    },
+    {
+      "id": 4,
+      "prompt": "Generate a 3D cube model",
+      "expected_output": "生成SimpleCAD立方体模型，通过visual-feedback验证",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "参考这个图片创建一个类似的模型：design/sketch.png",
+      "expected_output": "使用图片作为参考生成SimpleCAD模型",
+      "files": ["design/sketch.png"]
+    }
+  ]
+}
