@@ -1,149 +1,306 @@
 ---
 name: model-generator
-description: Automated CAD model generation workflow. Trigger when users want to create 3D models, meshes, geometries, or CAD objects. Supports both English and Chinese input like "create a gear model" or "创建一个齿轮模型". This skill automatically completes SimpleCAD model generation, visual-feedback validation, optional CAD software export, and result saving.
+description: Automated CAD model generation workflow using SimpleCAD as intermediate layer. Generates models via simplecad-self-evolve, validates with visual-feedback, optionally exports to target CAD software. All results saved to sandbox/{model_name}/.
 ---
 
 # Model Generator Skill
 
-Automated complete CAD model generation workflow, from user description to final model delivery.
+**Architecture: SimpleCAD as Intermediate Layer**
 
-## Workflow Overview
+```
+User Input → SimpleCAD API (Intermediate) → Visual Validation → Target CAD Software (Optional)
+                 ↓
+            sandbox/{model_name}/
+            ├── simplecad_script.py
+            ├── model.step
+            ├── visual_feedback/
+            └── {target_software}/
+```
 
-### Step 1: Parse User Intent
+## CRITICAL RULES - MUST FOLLOW
 
-Extract the following information:
-1. **Model Description** - What the user wants to create (text description, image path, or point cloud file path)
-2. **Target Software** (optional) - Whether a specific CAD software is specified (FreeCAD, SolidWorks, Blender, etc.)
-3. **Output Location** - Directory to save results (default: `sandbox/{model_name}`)
+### Rule 1: ALWAYS Create Sandbox First
+**BEFORE doing anything else**, create the sandbox directory structure:
 
-### Step 2: Process Input
+```python
+import os
+from pathlib import Path
 
-**If input is a point cloud file** (.pcd, .ply, .xyz, etc.):
-- First call `pointcloud-renderer` skill to render the point cloud to an image
-- Use the rendered image as input for simplecad-self-evolve
+# Extract model name from user input
+model_name = extract_model_name(user_input)  # e.g., "gear", "cup"
+sandbox_dir = Path("sandbox") / model_name
+sandbox_dir.mkdir(parents=True, exist_ok=True)
 
-**If input is an image file**:
-- Directly use the image as reference input for simplecad-self-evolve
+# Create subdirectories
+(sandbox_dir / "visual_feedback").mkdir(exist_ok=True)
+```
 
-**If input is a text description**:
-- Directly use the description to call simplecad-self-evolve
+### Rule 2: SimpleCAD is the ONLY First Step
+**NEVER** generate target CAD software code (FreeCAD, Blender, etc.) directly!
 
-### Step 3: Generate SimpleCAD Model
+**CORRECT workflow:**
+1. Generate SimpleCAD API code FIRST
+2. Execute it to create model.step
+3. Then optionally convert to target software
 
-Call `simplecad-self-evolve` skill:
-- Pass model description/image
-- Generate SimpleCAD API script
-- Execute script to verify model can be created successfully
+**WRONG workflow:**
+❌ Directly generating FreeCAD Python code as the first step
 
-### Step 4: Visual Feedback Validation
+### Rule 3: Mandatory Visual Feedback
+**MUST** run visual-feedback after generating SimpleCAD model.
+If validation fails, regenerate the SimpleCAD code.
 
-Call `visual-feedback` skill:
-- Perform visual validation on the generated model
-- Ensure model meets user expectations
-- If validation fails, return to Step 3 to regenerate
+## Step-by-Step Workflow
 
-### Step 5: CAD Software Export (Optional)
+### Phase 1: Setup (MANDATORY)
 
-If user specified a target CAD software and corresponding MCP is available:
+```python
+# 1. Parse user input
+model_description = extract_description(user_input)
+target_software = detect_target_software(user_input)  # Optional
+input_type, file_path = detect_input_type(user_input)  # text/image/pointcloud
 
-1. **FreeCAD**:
-   - Convert SimpleCAD API to FreeCAD Python API
-   - Use `freecad_create_document` and `freecad_create_object` to create the model
-   - Save as .FCStd file
+# 2. Create sandbox directory
+model_name = generate_model_name(model_description)
+sandbox_dir = Path("sandbox") / model_name
+sandbox_dir.mkdir(parents=True, exist_ok=True)
+(sandbox_dir / "visual_feedback").mkdir(exist_ok=True)
+if target_software:
+    (sandbox_dir / target_software).mkdir(exist_ok=True)
+```
 
-2. **Other Software** (SolidWorks, Blender, etc.):
-   - If corresponding MCP is available, execute similar workflow
-   - If not available, notify user and preserve SimpleCAD results
+### Phase 2: Generate SimpleCAD Model (MANDATORY)
 
-### Step 6: Save Results
+```python
+# 1. Call simplecad-self-evolve skill
+# Input: model_description or image
+# Output: simplecad_script.py in sandbox_dir
 
-All files saved to `sandbox/{model_name}/`:
+# 2. Execute the SimpleCAD script
+# This generates model.step in sandbox_dir
+
+# 3. Save files:
+# - sandbox/{model_name}/simplecad_script.py
+# - sandbox/{model_name}/model.step
+```
+
+### Phase 3: Visual Validation (MANDATORY)
+
+```python
+# Call visual-feedback skill on model.step
+# Save renderings to: sandbox/{model_name}/visual_feedback/
+# Views: front.png, top.png, right.png, isometric.png, perspective.png
+
+# If validation fails:
+# - Report issues to user
+# - Return to Phase 2 to regenerate
+```
+
+### Phase 4: Export to Target Software (OPTIONAL)
+
+Only if user specified target software AND MCP is available:
+
+```python
+# Convert SimpleCAD API to target software API
+# Example: FreeCAD
+
+# 1. Read simplecad_script.py
+# 2. Convert SimpleCAD calls to FreeCAD Python API
+# 3. Save converted script: sandbox/{model_name}/freecad/freecad_script.py
+# 4. Execute via FreeCAD MCP:
+#    - freecad_create_document
+#    - freecad_create_object (for each shape)
+# 5. Save FreeCAD file: sandbox/{model_name}/freecad/model.FCStd
+```
+
+### Phase 5: Documentation
+
+```python
+# Generate README.md in sandbox_dir:
+# - Model description
+# - File structure
+# - How to view results
+```
+
+## Directory Structure
+
 ```
 sandbox/{model_name}/
-├── simplecad_script.py       # SimpleCAD API script
-├── model.png                 # Model preview image
-├── visual_feedback_report.md # Validation report
-├── freecad/                  # If exported to FreeCAD
-│   ├── model.FCStd
-│   └── freecad_script.py
-└── README.md                 # Project documentation
+├── simplecad_script.py          # REQUIRED: SimpleCAD API code
+├── model.step                   # REQUIRED: Generated STEP file
+├── README.md                    # Project documentation
+├── visual_feedback/             # REQUIRED: Validation images
+│   ├── front.png
+│   ├── top.png
+│   ├── right.png
+│   ├── isometric.png
+│   └── perspective.png
+└── {target_software}/           # OPTIONAL: e.g., freecad/
+    ├── {target_software}_script.py  # Converted API code
+    └── model.{ext}                  # e.g., model.FCStd
 ```
+
+## SimpleCAD API Reference
+
+Common SimpleCAD operations (from simplecadapi):
+
+```python
+import simplecadapi as scad
+
+# Basic shapes
+cube = scad.make_box(l, w, h)
+sphere = scad.make_sphere(radius)
+cylinder = scad.make_cylinder(radius, height)
+
+# Transformations
+translated = scad.translate(shape, x, y, z)
+rotated = scad.rotate(shape, x_angle, y_angle, z_angle)
+scaled = scad.scale(shape, x_factor, y_factor, z_factor)
+
+# Boolean operations
+union = scad.union(shape1, shape2)
+difference = scad.difference(shape1, shape2)
+intersection = scad.intersection(shape1, shape2)
+
+# Export
+scad.export_step(shape, "model.step")
+scad.export_stl(shape, "model.stl")
+```
+
+## Target Software Conversion Examples
+
+### FreeCAD Conversion
+
+SimpleCAD code:
+```python
+import simplecadapi as scad
+cube = scad.make_box(10, 10, 10)
+scad.export_step(cube, "model.step")
+```
+
+Converted to FreeCAD:
+```python
+import FreeCAD as App
+import Part
+
+doc = App.newDocument("Model")
+cube = doc.addObject("Part::Box", "Box")
+cube.Length = 10
+cube.Width = 10
+cube.Height = 10
+doc.recompute()
+doc.saveAs("model.FCStd")
+```
+
+### Blender Conversion
+
+SimpleCAD code:
+```python
+import simplecadapi as scad
+cube = scad.make_box(10, 10, 10)
+```
+
+Converted to Blender Python:
+```python
+import bpy
+bpy.ops.mesh.primitive_cube_add(size=10, location=(0, 0, 0))
+```
+
+## Input Processing
+
+### Text Description
+Directly pass to simplecad-self-evolve.
+
+### Image Reference
+```
+User: "Create a model like this: reference.png"
+→ simplecad-self-evolve uses image as reference
+→ Generate SimpleCAD code based on visual analysis
+```
+
+### Point Cloud
+```
+User: "Convert this point cloud: scan.ply"
+1. pointcloud-renderer → scan_{view}.png
+2. simplecad-self-evolve uses rendered images
+3. Generate SimpleCAD code
+```
+
+## Error Handling
+
+### If SimpleCAD generation fails:
+- Report error to user
+- Do NOT proceed to visual feedback
+- Do NOT attempt target software conversion
+
+### If visual feedback fails:
+- Show validation images to user
+- Ask if they want to regenerate
+- If yes, return to Phase 2
+- If no, proceed with current model
+
+### If target software conversion fails:
+- Preserve SimpleCAD results
+- Notify user of conversion failure
+- Suggest using SimpleCAD output directly
 
 ## Usage Examples
 
-### Chinese Examples
+### Example 1: Simple Text Description
+**User**: "创建一个齿轮模型"
 
-**User Input**: "创建一个齿轮模型"
-```
-1. Parse: model=gear, no target software specified
-2. Call simplecad-self-evolve to generate gear
-3. visual-feedback validation
-4. Save to sandbox/gear/
-```
+**Process**:
+1. Create `sandbox/gear/`
+2. Call simplecad-self-evolve → `sandbox/gear/simplecad_script.py`
+3. Execute → `sandbox/gear/model.step`
+4. visual-feedback → `sandbox/gear/visual_feedback/*.png`
+5. No target software specified → Done
 
-**User Input**: "在FreeCAD中创建一个杯子的3D模型"
-```
-1. Parse: model=cup, target software=FreeCAD
-2. Call simplecad-self-evolve to generate cup
-3. visual-feedback validation
-4. Convert to FreeCAD API
-5. Use freecad MCP to create model
-6. Save to sandbox/cup/
-```
+### Example 2: With Target Software
+**User**: "在FreeCAD中创建一个杯子"
 
-**User Input**: "把这个点云转换成模型：data/pointcloud.ply"
-```
-1. Parse: input=point cloud file
-2. Call pointcloud-renderer to render to image
-3. Use image to call simplecad-self-evolve
-4. Continue with validation and saving workflow
-```
+**Process**:
+1. Create `sandbox/cup/`, `sandbox/cup/freecad/`
+2. Call simplecad-self-evolve → `sandbox/cup/simplecad_script.py`
+3. Execute → `sandbox/cup/model.step`
+4. visual-feedback → `sandbox/cup/visual_feedback/*.png`
+5. Convert SimpleCAD → FreeCAD API
+6. Execute via MCP → `sandbox/cup/freecad/model.FCStd`
 
-### English Examples
+### Example 3: From Point Cloud
+**User**: "把这个点云转换成模型：data/scan.ply"
 
-**User Input**: "Generate a 3D cube model"
-```
-1. Parse: model=cube, no target software specified
-2. Call simplecad-self-evolve to generate cube
-3. visual-feedback validation
-4. Save to sandbox/cube/
-```
+**Process**:
+1. pointcloud-renderer → `data/scan_*.png`
+2. Create `sandbox/scan_model/`
+3. simplecad-self-evolve (using images) → `simplecad_script.py`
+4. Execute → `model.step`
+5. visual-feedback → validation images
 
-**User Input**: "Create a spiral using Blender"
-```
-1. Parse: model=spiral, target software=Blender
-2. Call simplecad-self-evolve to generate spiral
-3. visual-feedback validation
-4. Convert to Blender API
-5. Use blender MCP to create model
-6. Save to sandbox/spiral/
+## Anti-Patterns (NEVER DO)
+
+❌ **Direct target software code generation**
+```python
+# WRONG: Directly writing this as first step
+import FreeCAD as App  # ❌ Never do this first!
 ```
 
-## Input Type Detection
+❌ **Skip sandbox creation**
+```python
+# WRONG: Writing files to current directory
+with open("script.py", "w") as f:  # ❌ Always use sandbox!
+```
 
-The skill automatically detects input types:
+❌ **Skip visual feedback**
+```python
+# WRONG: Not validating before exporting
+generate_model() → export_to_freecad()  # ❌ Must validate first!
+```
 
-- **Point Cloud Extensions**: .pcd, .ply, .xyz, .pts, .las, .laz
-- **Image Extensions**: .png, .jpg, .jpeg, .gif, .bmp, .tiff, .webp
-- **Text Description**: Anything else (no file path detected)
+## Summary
 
-## Target Software Detection
-
-The skill automatically detects target CAD software from user input:
-
-- **freecad**: "freecad", "free cad", "fc"
-- **solidworks**: "solidworks", "solid works", "sw"
-- **blender**: "blender", "bl"
-- **fusion360**: "fusion", "fusion360", "f360"
-- **autocad**: "autocad", "auto cad"
-- **openscad**: "openscad", "open scad"
-
-## Important Notes
-
-- **MUST** execute visual-feedback validation, cannot be skipped
-- Automatically detect input type (text/image/point cloud)
-- Automatically detect target CAD software
-- Save all intermediate results for user traceability
-- If conversion to specific CAD software fails, preserve SimpleCAD results and notify user
-- Always create sandbox directory structure before starting
-- Generate meaningful model names from descriptions for folder naming
+1. **ALWAYS** create sandbox/{model_name}/ first
+2. **ALWAYS** generate SimpleCAD code as intermediate layer
+3. **ALWAYS** validate with visual-feedback
+4. **OPTIONALLY** convert to target CAD software
+5. **NEVER** skip steps 1-3
