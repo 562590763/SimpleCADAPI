@@ -1,16 +1,6 @@
 ---
 name: model-generator
-description: |
-  Automated CAD model generation workflow. Trigger when users want to create 3D models, meshes, geometries, or CAD objects.
-  
-  Trigger scenarios include:
-  - User says "create a xxx model", "generate xxx", "make xxx for me" / 用户说"创建一个xxx模型"、"生成xxx"、"帮我做xxx"
-  - User mentions 3D modeling, CAD design, geometry generation / 用户提到3D建模、CAD设计、几何体生成
-  - User wants to create models in FreeCAD, SolidWorks, Blender, or other CAD software / 用户想在FreeCAD、SolidWorks、Blender等软件中创建模型
-  - User provides point cloud files or images to convert to 3D models / 用户提供了点云文件或图片，想要转换为3D模型
-  - Any request involving "modeling", "model", "CAD", "3D", "mesh", "geometry" / 任何涉及"建模"、"model"、"CAD"、"3D"的请求
-  
-  This skill automatically completes: SimpleCAD model generation → visual-feedback validation → (optional) CAD software conversion & export → result saving
+description: Automated CAD model generation workflow. Trigger when users want to create 3D models, meshes, geometries, or CAD objects. Supports both English and Chinese input like "create a gear model" or "创建一个齿轮模型". This skill automatically completes SimpleCAD model generation, visual-feedback validation, optional CAD software export, and result saving.
 ---
 
 # Model Generator Skill
@@ -81,7 +71,7 @@ sandbox/{model_name}/
 
 ## Usage Examples
 
-### Chinese Examples (用户通常输入中文)
+### Chinese Examples
 
 **User Input**: "创建一个齿轮模型"
 ```
@@ -139,14 +129,14 @@ The skill automatically detects input types:
 
 ## Target Software Detection
 
-The skill automatically detects target CAD software from user input (支持中英文):
+The skill automatically detects target CAD software from user input:
 
-- **freecad**: "freecad", "free cad", "fc" / "在freecad中", "用freecad"
-- **solidworks**: "solidworks", "solid works", "sw" / "在solidworks中", "用solidworks"
-- **blender**: "blender", "bl" / "在blender中", "用blender"
-- **fusion360**: "fusion", "fusion360", "f360" / "在fusion中"
-- **autocad**: "autocad", "auto cad" / "在autocad中"
-- **openscad**: "openscad", "open scad" / "在openscad中"
+- **freecad**: "freecad", "free cad", "fc"
+- **solidworks**: "solidworks", "solid works", "sw"
+- **blender**: "blender", "bl"
+- **fusion360**: "fusion", "fusion360", "f360"
+- **autocad**: "autocad", "auto cad"
+- **openscad**: "openscad", "open scad"
 
 ## Important Notes
 

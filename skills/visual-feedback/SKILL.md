@@ -1,6 +1,9 @@
-# Visual Feedback Skill
+---
+name: visual-feedback
+description: Render STEP format CAD models into multi-view images for visual validation and design verification. Helps verify if generated CAD models match the design intent.
+---
 
-## Skill Overview
+# Visual Feedback Skill
 
 The Visual Feedback skill renders STEP format CAD models into multi-view images, helping verify if the generated CAD models match the design intent.
 

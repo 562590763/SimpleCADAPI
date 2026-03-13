@@ -1,6 +1,9 @@
-# PointCloud Renderer Skill
+---
+name: pointcloud-renderer
+description: Render point cloud files (PLY, PCD, XYZ, PTS, LAS/LAZ) into multi-view images for visualization and CAD model generation workflow.
+---
 
-## Skill Overview
+# PointCloud Renderer Skill
 
 The PointCloud Renderer skill renders point cloud files into multi-view images, enabling visualization of 3D scanned data or point cloud datasets. This skill bridges the gap between raw point cloud data and visual feedback, allowing you to generate CAD models from point cloud inputs.
 
