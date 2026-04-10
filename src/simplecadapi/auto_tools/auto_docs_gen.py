@@ -15,14 +15,44 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SOURCES: tuple[Path, ...] = (
-    PROJECT_ROOT / "src/simplecadapi/operations.py",
-    PROJECT_ROOT / "src/simplecadapi/evolve.py",
+DEFAULT_SOURCE_FILENAMES: tuple[str, ...] = (
+    "operations.py",
+    "field.py",
+    "evolve.py",
+    "constraints.py",
+    "ql.py",
 )
-DEFAULT_OUTPUT_DIRS: tuple[Path, ...] = (PROJECT_ROOT / "docs/api",)
 
 MISSING = object()
+
+
+def _package_root_from(module_file: Path | str | None = None) -> Path:
+    target = Path(module_file) if module_file is not None else Path(__file__)
+    return target.resolve().parents[1]
+
+
+def _source_checkout_root(package_root: Path) -> Path | None:
+    src_dir = package_root.parent
+    project_root = src_dir.parent
+
+    if src_dir.name != "src":
+        return None
+    if not (project_root / "pyproject.toml").exists():
+        return None
+    return project_root
+
+
+def _default_source_files(package_root: Path) -> List[Path]:
+    return [package_root / name for name in DEFAULT_SOURCE_FILENAMES]
+
+
+def _default_output_dirs(package_root: Path, cwd: Path | None = None) -> List[Path]:
+    project_root = _source_checkout_root(package_root)
+    if project_root is not None:
+        return [project_root / "docs/api"]
+
+    base_dir = cwd if cwd is not None else Path.cwd()
+    return [base_dir / "docs/api"]
 
 
 @dataclass
@@ -142,13 +172,13 @@ class APIDocumentGenerator:
         md_lines.append(f"# {api.name}")
         md_lines.append("")
 
-        md_lines.append("## API定义")
+        md_lines.append("## API Definition")
         md_lines.append("")
         md_lines.append("```python")
         md_lines.append(api.signature)
         md_lines.append("```")
         md_lines.append("")
-        md_lines.append(f"*来源文件: {api.source_file}*")
+        md_lines.append(f"*Source: {api.source_file}*")
         md_lines.append("")
 
         description = str(parsed.get("description", "")).strip()
@@ -156,14 +186,14 @@ class APIDocumentGenerator:
         usage_parts = [part for part in [description, usage] if part]
         if usage_parts:
             merged_usage = "\n\n".join(dict.fromkeys(usage_parts))
-            md_lines.append("## API作用")
+            md_lines.append("## Description")
             md_lines.append("")
             md_lines.extend(merged_usage.splitlines())
             md_lines.append("")
 
         args = parsed.get("args", [])
         if isinstance(args, list) and args:
-            md_lines.append("## API参数说明")
+            md_lines.append("## Parameters")
             md_lines.append("")
             for arg in args:
                 arg_name = str(arg.get("name", "")).strip()
@@ -173,20 +203,20 @@ class APIDocumentGenerator:
                 md_lines.append(f"### {arg_name}")
                 md_lines.append("")
                 if arg_type:
-                    md_lines.append(f"- **类型**: `{arg_type}`")
-                md_lines.append(f"- **说明**: {arg_desc}")
+                    md_lines.append(f"- **Type**: `{arg_type}`")
+                md_lines.append(f"- **Description**: {arg_desc}")
                 md_lines.append("")
 
         returns_text = str(parsed.get("returns", "")).strip()
         if returns_text:
-            md_lines.append("## 返回值说明")
+            md_lines.append("## Returns")
             md_lines.append("")
             md_lines.extend(returns_text.splitlines())
             md_lines.append("")
 
         raises = parsed.get("raises", [])
         if isinstance(raises, list) and raises:
-            md_lines.append("## 异常")
+            md_lines.append("## Raises")
             md_lines.append("")
             for exc in raises:
                 exc_type = str(exc.get("type", "")).strip()
@@ -196,11 +226,11 @@ class APIDocumentGenerator:
 
         examples = parsed.get("examples", [])
         if isinstance(examples, list) and examples:
-            md_lines.append("## API使用例子")
+            md_lines.append("## Examples")
             md_lines.append("")
             for index, block in enumerate(examples, start=1):
                 if len(examples) > 1:
-                    md_lines.append(f"### 例子 {index}")
+                    md_lines.append(f"### Example {index}")
                 md_lines.append("```python")
                 md_lines.extend(block.splitlines())
                 md_lines.append("```")
@@ -210,47 +240,52 @@ class APIDocumentGenerator:
 
     def _build_api_index_markdown(self) -> str:
         categories: Dict[str, List[ApiInfo]] = {
-            "基础图形创建": [],
-            "变换操作": [],
-            "3D操作": [],
-            "标签和选择": [],
-            "布尔运算": [],
-            "导出功能": [],
-            "高级特征": [],
-            "自进化": [],
-            "其他": [],
+            "Basic Creation": [],
+            "Transforms": [],
+            "3D Operations": [],
+            "Tagging and Selection": [],
+            "Boolean Operations": [],
+            "Export": [],
+            "Advanced Features": [],
+            "Evolve": [],
+            "Assembly Constraints": [],
+            "Other": [],
         }
 
         for api in self.apis:
             name = api.name
 
             if api.source_file == "evolve.py":
-                categories["自进化"].append(api)
+                categories["Evolve"].append(api)
+                continue
+
+            if api.source_file == "constraints.py":
+                categories["Assembly Constraints"].append(api)
                 continue
 
             if name.startswith("make_"):
-                categories["基础图形创建"].append(api)
+                categories["Basic Creation"].append(api)
             elif name.startswith(("translate_", "rotate_", "mirror_")):
-                categories["变换操作"].append(api)
+                categories["Transforms"].append(api)
             elif name.startswith(("extrude_", "revolve_", "loft_", "sweep_")):
-                categories["3D操作"].append(api)
+                categories["3D Operations"].append(api)
             elif name.startswith(("set_tag", "select_")):
-                categories["标签和选择"].append(api)
+                categories["Tagging and Selection"].append(api)
             elif name.startswith(("union_", "cut_", "intersect_")):
-                categories["布尔运算"].append(api)
+                categories["Boolean Operations"].append(api)
             elif name.startswith("export_"):
-                categories["导出功能"].append(api)
+                categories["Export"].append(api)
             elif name.startswith(
                 ("fillet_", "chamfer_", "shell_", "pattern_", "helical_")
             ):
-                categories["高级特征"].append(api)
+                categories["Advanced Features"].append(api)
             else:
-                categories["其他"].append(api)
+                categories["Other"].append(api)
 
         md_lines: List[str] = [
-            "# SimpleCAD API 文档索引",
+            "# SimpleCAD API Index",
             "",
-            "本文档包含了 SimpleCAD API (来自 `operations.py` 和 `evolve.py`) 的所有函数说明。",
+            "This index includes API docs generated from `operations.py`, `evolve.py`, `constraints.py`, and `ql.py`.",
             "",
         ]
 
@@ -260,7 +295,7 @@ class APIDocumentGenerator:
             md_lines.append(f"## {category}")
             md_lines.append("")
             for api in sorted(api_list, key=lambda item: item.name):
-                source_info = f" *(来自 {api.source_file})*"
+                source_info = f" *(from {api.source_file})*"
                 md_lines.append(f"- [{api.name}]({api.name}.md){source_info}")
             md_lines.append("")
 
@@ -524,16 +559,25 @@ def _parse_cli_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_source_files(cli_sources: Sequence[str] | None) -> List[Path]:
+def _resolve_source_files(
+    cli_sources: Sequence[str] | None,
+    module_file: Path | str | None = None,
+) -> List[Path]:
     if cli_sources:
         return [Path(item).resolve() for item in cli_sources]
-    return [path.resolve() for path in DEFAULT_SOURCES]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_source_files(package_root)]
 
 
-def _resolve_output_dirs(cli_output_dirs: Sequence[str] | None) -> List[Path]:
+def _resolve_output_dirs(
+    cli_output_dirs: Sequence[str] | None,
+    module_file: Path | str | None = None,
+    cwd: Path | None = None,
+) -> List[Path]:
     if cli_output_dirs:
         return [Path(item).resolve() for item in cli_output_dirs]
-    return [path.resolve() for path in DEFAULT_OUTPUT_DIRS]
+    package_root = _package_root_from(module_file)
+    return [path.resolve() for path in _default_output_dirs(package_root, cwd)]
 
 
 def main() -> None:

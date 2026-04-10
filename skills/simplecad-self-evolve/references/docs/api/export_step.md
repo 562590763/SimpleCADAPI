@@ -1,27 +1,47 @@
 # export_step
 
-## API定义
+## API Definition
 
 ```python
 def export_step(shapes: Union[AnyShape, Sequence[AnyShape]], filename: str) -> None
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
-导出为STEP格式
+Export shapes to STEP.
 
-## API参数说明
+Use this function when you want to export one shape or many shapes into the
+same STEP file. Passing `List[Solid]` is valid and often preferred when a
+previous boolean operation returned multiple solids.
+
+## Parameters
 
 ### shapes
 
-- **说明**: 要导出的几何体或几何体列表
+- **Description**: A single exportable shape or any nested sequence of exportable shapes. Lists of Solid are supported directly, including list results returned by boolean operations.
 
 ### filename
 
-- **说明**: 输出文件名
+- **Description**: Output STEP file path.
 
-## 异常
+## Returns
 
-- **ValueError**: 当导出失败时
+None: Writes the provided shapes into one STEP file.
+
+## Examples
+
+### Example 1
+```python
+main_body = make_box_rsolid(10, 4, 4, bottom_face_center=(0, 0, 0))
+left_cap = make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0))
+right_cap = make_sphere_rsolid(2.0, center=(12.0, 2.0, 2.0))
+body_parts = union_rsolidlist(main_body, [left_cap, right_cap])
+```
+
+### Example 2
+```python
+# Export the full list directly; no need to collapse to body_parts[0].
+export_step(body_parts, "rounded_bar.step")
+```

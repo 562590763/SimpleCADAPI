@@ -5,9 +5,9 @@ license: MIT
 compatibility: Requires Python 3.10+, active virtual environment, and network access for package installation.
 metadata:
   project: simplecadapi
-  version: 2.0.0
+  version: 2.0.9
   runtime-package: simplecadapi
-  runtime-spec: simplecadapi==2.0.0
+  runtime-spec: simplecadapi==2.0.9
   cases-module: simplecad_self_evolve_cases
 ---
 
@@ -19,10 +19,41 @@ metadata:
 - Runtime code is installed from PyPI into active virtual environment site-packages.
 - Skill-local evolved cases are stored under `cases/simplecad_self_evolve_cases/`.
 
+## Working From Repo Root
+- Tool calls run from the repo root.
+- Use one explicit skill root: `./skills/simplecad-self-evolve/` or `./workspace/skills/simplecad-self-evolve/`.
+- Main doc paths:
+  - `<skill_root>/SKILL.md`
+  - `<skill_root>/references/docs/api/README.md`
+  - `<skill_root>/references/docs/api/<api_name>.md`
+  - `<skill_root>/references/docs/core/<type_name>.md`
+- Skill layout also includes `<skill_root>/scripts/` and `<skill_root>/cases/`.
+
+## MUST Requirements
+1. Read `SKILL.md` and `references/docs/api/README.md` before choosing APIs.
+2. Read the exact API Markdown page for every API you use.
+3. Read the needed `core/` and tag/selection docs when an API needs `Edge`, `Face`, `Wire`, `Solid`, `Assembly`, or tags.
+4. Follow the documented API signatures exactly.
+5. Use geometry APIs for integrated parts and declarative constraints for final assemblies.
+6. Use tags consistently.
+7. Build and validate incrementally. Each step MUST include a small grounding `print`, and grounding MUST use QL where possible.
+8. For inspection/debugging, query geometry with QL and print only the queried facts you need; do not print whole solids, assemblies, or full model objects.
+9. Boolean operations always return `List[Solid]`. You MUST check `len(results)` before using `results[0]`.
+10. If tangent-only contact leaves multiple solids after `union_rsolidlist(...)`, that is often acceptable. Keep the list and continue operating on the list or iterate over its solids.
+11. If the design explicitly requires exactly one merged solid and `len(results) != 1`, you MUST NOT silently pick one item. Instead, slightly adjust part placement so the intended bodies overlap/embed, run the union again, and only then unwrap the single result.
+12. After model construction, ask the user whether the result is satisfactory and whether any modifications are needed. Only after explicit user confirmation may you add the script to evolve cases.
+
+## Boolean result discipline
+- `union_rsolidlist(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
+- They always return `List[Solid]`.
+- Default behavior: keep the list result and pass it forward or iterate over it.
+- Only unwrap to a single solid after an explicit `len(results) == 1` check.
+- If a single merged solid is required but a union still returns multiple solids, slightly move the parts so they overlap instead of merely touching, then recompute the union.
+
 ## Install behavior
 - Preferred: run `scripts/install.sh` once when skill is installed/activated.
 - Runtime wrappers auto-install on demand if `simplecadapi` is missing.
-- Package installed by default: `simplecadapi==2.0.0`
+- Package installed by default: `simplecadapi==2.0.9`
 - Wrappers install only into a virtual environment interpreter (set `PYTHON_BIN` when needed).
 
 ## Interpreter selection

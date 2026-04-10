@@ -1,7 +1,4 @@
-"""
-SimpleCAD API - 简化的CAD建模Python API
-基于CADQuery实现，提供直观的几何建模接口
-"""
+"""SimpleCAD API: a simplified Python CAD modeling API built on CADQuery."""
 
 from .core import (
     # 核心类
@@ -27,8 +24,10 @@ from .operations import (
     make_circle_redge,
     make_circle_rface,
     make_circle_rwire,
+    make_cone_rsolid,
     make_cylinder_rsolid,
     make_face_from_wire_rface,
+    make_field_surface_rsolid,
     make_helix_redge,
     make_helix_rwire,
     make_line_redge,
@@ -44,34 +43,41 @@ from .operations import (
     make_three_point_arc_redge,
     make_three_point_arc_rwire,
     make_wire_from_edges_rwire,
+
     # 变换操作
     mirror_shape,
     rotate_shape,
     translate_shape,
+
     # 3D操作
     extrude_rsolid,
     helical_sweep_rsolid,
     loft_rsolid,
     revolve_rsolid,
     sweep_rsolid,
+
     # 标签和选择
     select_edges_by_tag,
     select_faces_by_tag,
     set_tag,
+
     # 布尔运算
     cut_rsolidlist,
     intersect_rsolidlist,
     union_rsolidlist,
+
     # 导出
     export_step,
     export_stl,
+    render_screenshot_rpath,
+
     # 高级特征操作
     chamfer_rsolid,
     fillet_rsolid,
     shell_rsolid,
+
     # 其他
     linear_pattern_rsolidlist,
-    make_cone_rsolid,
     radial_pattern_rsolidlist,
 )
 
@@ -82,34 +88,50 @@ from .evolve import (
     make_threaded_rod_rsolid,
 )
 
+from .constraints import (
+    # 声明式装配约束
+    add_part_rassembly,
+    clear_constraints_rassembly,
+    clone_assembly_rassembly,
+    constrain_coincident_rassembly,
+    constrain_concentric_rassembly,
+    constrain_distance_rassembly,
+    constrain_offset_rassembly,
+    make_assembly_rassembly,
+    rotate_part_rassembly,
+    solve_assembly_rresult,
+    stack_rassembly,
+    translate_part_rassembly,
+    Assembly,
+    AssemblyResult,
+    SolveReport,
+    PartHandle,
+    PointAnchor,
+    AxisAnchor,
+    stack,
+)
+
+from . import field
+from . import ql
+
 __author__ = "SimpleCAD API Team"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
 
 # 便于使用的别名
 Workplane = SimpleWorkplane
 
-# 布尔运算别名
-cut = cut_rsolidlist
-intersect = intersect_rsolidlist
-union = union_rsolidlist
-
-# 导出别名
-to_step = export_step
-to_stl = export_stl
-
-# 3D操作别名
-extrude = extrude_rsolid
-revolve = revolve_rsolid
-
 # 创建函数别名
 create_angle_arc = make_angle_arc_redge
 create_angle_arc_wire = make_angle_arc_rwire
+create_arc = make_three_point_arc_redge
+create_arc_wire = make_three_point_arc_rwire
 create_box = make_box_rsolid
 create_circle_edge = make_circle_redge
 create_circle_face = make_circle_rface
 create_circle_wire = make_circle_rwire
 create_cylinder = make_cylinder_rsolid
 create_face_from_wire = make_face_from_wire_rface
+create_field_surface = make_field_surface_rsolid
 create_helix = make_helix_redge
 create_helix_wire = make_helix_rwire
 create_line = make_line_redge
@@ -122,14 +144,24 @@ create_segment_wire = make_segment_rwire
 create_sphere = make_sphere_rsolid
 create_spline = make_spline_redge
 create_spline_wire = make_spline_rwire
-create_arc = make_three_point_arc_redge
-create_arc_wire = make_three_point_arc_rwire
 create_wire_from_edges = make_wire_from_edges_rwire
 
 # 变换操作别名
 rotate = rotate_shape
 translate = translate_shape
 
+# 3D操作别名
+extrude = extrude_rsolid
+revolve = revolve_rsolid
+
+# 布尔运算别名
+cut = cut_rsolidlist
+intersect = intersect_rsolidlist
+union = union_rsolidlist
+
+# 导出别名
+to_step = export_step
+to_stl = export_stl
 
 __all__ = [
     # 核心类
@@ -143,9 +175,11 @@ __all__ = [
     "Solid",
     "AnyShape",
     "TaggedMixin",
+
     # 坐标系
     "get_current_cs",
     "WORLD_CS",
+
     # 基础几何创建
     "make_angle_arc_redge",
     "make_angle_arc_rwire",
@@ -153,8 +187,10 @@ __all__ = [
     "make_circle_redge",
     "make_circle_rface",
     "make_circle_rwire",
+    "make_cone_rsolid",
     "make_cylinder_rsolid",
     "make_face_from_wire_rface",
+    "make_field_surface_rsolid",
     "make_helix_redge",
     "make_helix_rwire",
     "make_line_redge",
@@ -170,38 +206,69 @@ __all__ = [
     "make_three_point_arc_redge",
     "make_three_point_arc_rwire",
     "make_wire_from_edges_rwire",
+
     # 变换操作
     "mirror_shape",
     "rotate_shape",
     "translate_shape",
+
     # 3D操作
     "extrude_rsolid",
     "helical_sweep_rsolid",
     "loft_rsolid",
     "revolve_rsolid",
     "sweep_rsolid",
+
     # 标签和选择
     "select_edges_by_tag",
     "select_faces_by_tag",
     "set_tag",
+
     # 布尔运算
     "cut_rsolidlist",
     "intersect_rsolidlist",
     "union_rsolidlist",
+
     # 导出
     "export_step",
     "export_stl",
+    "render_screenshot_rpath",
+
     # 高级特征操作
     "chamfer_rsolid",
     "fillet_rsolid",
     "shell_rsolid",
+
     # 其他
     "linear_pattern_rsolidlist",
-    "make_cone_rsolid",
-    "radial_pattern_rsolidlist",
     "make_n_hole_flange_rsolid",
     "make_naca_propeller_blade_rsolid",
     "make_threaded_rod_rsolid",
+    "radial_pattern_rsolidlist",
+
+    # 声明式装配约束
+    "add_part_rassembly",
+    "clear_constraints_rassembly",
+    "clone_assembly_rassembly",
+    "constrain_coincident_rassembly",
+    "constrain_concentric_rassembly",
+    "constrain_distance_rassembly",
+    "constrain_offset_rassembly",
+    "make_assembly_rassembly",
+    "rotate_part_rassembly",
+    "solve_assembly_rresult",
+    "stack_rassembly",
+    "translate_part_rassembly",
+    "Assembly",
+    "AssemblyResult",
+    "SolveReport",
+    "PartHandle",
+    "PointAnchor",
+    "AxisAnchor",
+    "stack",
+    "field",
+    "ql",
+
     # 别名
     "create_angle_arc",
     "create_angle_arc_wire",
@@ -213,6 +280,7 @@ __all__ = [
     "create_circle_wire",
     "create_cylinder",
     "create_face_from_wire",
+    "create_field_surface",
     "create_helix",
     "create_helix_wire",
     "create_line",

@@ -1,60 +1,65 @@
 # intersect_rsolidlist
 
-## API定义
+## API Definition
 
 ```python
 def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
-实体交集运算（布尔交集）
+Compute the boolean intersection of solids.
 
-计算多个实体的交集，返回只包含所有实体重叠部分的新实体列表。
-如果多个实体不相交，可能返回空列表。交集体积小于等于任一输入实体。
+All boolean operations (union/cut/intersect) accept a mix of Solid and
+sequences; results are always returned as a list of Solid.
+`intersect_rsolidlist(body, [clip_a, clip_b])` is valid input.
+If an earlier union returned multiple solids, keep that list and intersect
+each solid intentionally instead of collapsing it to `result[0]`.
+If a later step truly requires one solid, first verify `len(results) == 1`.
+When a preceding union produced multiple tangent-only solids, adjust the part
+placement so the intended bodies overlap slightly, re-run the union, and only
+then unwrap the single result.
 
-## API参数说明
+## Parameters
 
-### *solids
+### solids
 
-- **说明**: 需要进行交集运算的实体对象，可以传入： - 单个序列：intersect_rsolidlist([solid1, solid2, ...]) - 多个参数：intersect_rsolidlist(solid1, solid2, ...) - 混合输入：intersect_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列
+- **Description**: One or more Solid objects or sequences of Solid. Nested sequences are flattened before processing.
 
-## 返回值说明
+## Returns
 
-List[Solid]: 交集运算结果的实体列表。所有输入实体的共同交集部分。
-如果没有有效的交集，返回空列表。
+List[Solid]: A list containing the intersection result, or an empty list if
+the solids do not overlap. The result is returned as a list for
+consistency with other boolean operations.
 
-## 异常
+## Examples
 
-- **ValueError**: 当输入实体无效或运算失败时抛出异常
-
-## API使用例子
-
-### 例子 1
+### Example 1
 ```python
-# 计算多个实体的交集（两个方式等价）
-box1 = make_box_rsolid(3, 3, 3, (0, 0, 0))
-box2 = make_box_rsolid(3, 3, 3, (1, 1, 0))
-sphere = make_sphere_rsolid(2.5)
-intersection1 = intersect_rsolidlist([box1, box2, sphere])
-intersection2 = intersect_rsolidlist(box1, box2, sphere)
-# 两种调用方式等价
+body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
+clip_a = make_box_rsolid(8, 4, 4, bottom_face_center=(2, 0, 0))
+clip_b = make_box_rsolid(6, 6, 6, bottom_face_center=(3, -1, -1))
 ```
 
-### 例子 2
+### Example 2
 ```python
-# 球体和立方体的交集
-sphere = make_sphere_rsolid(2.0)
-cube = make_box_rsolid(3, 3, 3)
-rounded_cube = intersect_rsolidlist(sphere, cube)
+results = intersect_rsolidlist(body, [clip_a, clip_b])
+print(f"Intersect result count: {len(results)}")
 ```
 
-### 例子 3
+### Example 3
 ```python
-# 三个实体的交集
-cylinder = make_cylinder_rsolid(1.5, 4.0)
-slab = make_box_rsolid(4, 4, 2, (0, 0, 1))
-intersection = intersect_rsolidlist(cylinder, slab, sphere)
+# A previous union may return multiple solids; keep the list and intersect each part.
+tangent_parts = union_rsolidlist(
+    body,
+    [
+        make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
+        make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
+    ],
+)
+clipped_parts = []
+for part in tangent_parts:
+    clipped_parts.extend(intersect_rsolidlist(part, clip_a))
 ```

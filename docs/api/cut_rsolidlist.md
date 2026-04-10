@@ -1,59 +1,65 @@
 # cut_rsolidlist
 
-## API定义
+## API Definition
 
 ```python
 def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]
 ```
 
-*来源文件: operations.py*
+*Source: operations.py*
 
-## API作用
+## Description
 
-实体差集运算（布尔减法）
+Compute the boolean difference of solids.
 
-从第一个实体中依次减去其他实体的重叠部分，常用于创建孔洞、凹槽等。
-结果实体的体积 = solid1体积 - (solid1∩solid2) - (结果∩solid3) - ...
+All boolean operations (union/cut/intersect) accept a mix of Solid and
+sequences; results are always returned as a list of Solid.
+`cut_rsolidlist(base, [tool_a, tool_b])` is valid input.
+If an earlier union returned multiple solids, keep that list and process each
+solid intentionally instead of collapsing it to `result[0]` without proof.
+If a later step truly requires one solid, first verify `len(results) == 1`.
+When a preceding union produced multiple tangent-only solids, adjust the part
+placement so the intended bodies overlap slightly, re-run the union, and only
+then unwrap the single result.
 
-## API参数说明
+## Parameters
 
-### *solids
+### solids
 
-- **说明**: 需要进行差集运算的实体对象，可以传入： - 单个序列：cut_rsolidlist([solid1, solid2, ...]) - 多个参数：cut_rsolidlist(solid1, solid2, ...) - 混合输入：cut_rsolidlist(solid1, [solid2, solid3], ...)，会自动展开所有序列 第一个实体作为基础实体，后续实体依次从基础实体中减去。
+- **Description**: One or more Solid objects or sequences of Solid. Nested sequences are flattened before processing; the first solid is the base, the rest are subtracted in order.
 
-## 返回值说明
+## Returns
 
-List[Solid]: 差集运算结果的实体列表。从第一个实体中依次减去其他所有实体。
-返回包含结果的列表：[result_solid]
+List[Solid]: A list containing the cut result solid, or an empty list when
+there is no valid input. The result is returned as a list for consistency
+with other boolean operations.
 
-## 异常
+## Examples
 
-- **ValueError**: 当输入实体无效或运算失败时抛出异常
-
-## API使用例子
-
-### 例子 1
+### Example 1
 ```python
-# 在立方体中创建圆形孔（两种方式等价）
-box = make_box_rsolid(4, 4, 4)
-hole = make_cylinder_rsolid(1.0, 4.0)
-result1 = cut_rsolidlist(box, hole)
-result2 = cut_rsolidlist([box, hole])
+body = make_box_rsolid(12, 4, 4, bottom_face_center=(0, 0, 0))
+slot = make_box_rsolid(2, 2, 6, bottom_face_center=(2, 1, -1))
+relief = make_cylinder_rsolid(radius=0.8, height=6, center=(8, 2, 2))
 ```
 
-### 例子 2
+### Example 2
 ```python
-# 创建多个孔的结构
-base = make_box_rsolid(6, 3, 2)
-hole1 = make_cylinder_rsolid(0.5, 2, (1, 0, 0))
-hole2 = make_cylinder_rsolid(0.5, 2, (5, 0, 0))
-slotted_base = cut_rsolidlist(base, hole1, hole2)
+results = cut_rsolidlist(body, [slot, relief])
+print(f"Cut result count: {len(results)}")
 ```
 
-### 例子 3
+### Example 3
 ```python
-# 从球体中减去立方体
-sphere = make_sphere_rsolid(2.0)
-cube = make_box_rsolid(2, 2, 2)
-carved_sphere = cut_rsolidlist(sphere, cube)
+# If a previous union returned multiple solids, keep the list and cut each part.
+tangent_parts = union_rsolidlist(
+    body,
+    [
+        make_sphere_rsolid(2.0, center=(-2.0, 2.0, 2.0)),
+        make_sphere_rsolid(2.0, center=(14.0, 2.0, 2.0)),
+    ],
+)
+trimmed_parts = []
+for part in tangent_parts:
+    trimmed_parts.extend(cut_rsolidlist(part, [slot, relief]))
 ```

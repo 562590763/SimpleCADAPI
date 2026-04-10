@@ -9,7 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
+.env
+
 output/
+
+# Sandbox artifacts
+sandbox/
 
 # Generated skills archives
 skills/*.tar.gz
