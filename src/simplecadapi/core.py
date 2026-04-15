@@ -603,12 +603,37 @@ class Wire(TaggedMixin, TopoMixein):
             self.cq_wire = cq_wire
             TaggedMixin.__init__(self)
             TopoMixein.__init__(self, level=2, self_shape_ref=self)
+            
+            # Feature tracking for feature history
+            self._feature = None
+            self._feature_id = None
 
             for e in self.cq_wire.Edges():
                 self.add_child(Edge(e))
 
         except Exception as e:
             raise ValueError(f"初始化线失败: {e}. 请检查输入的线对象是否有效。")
+
+    def set_feature(self, feature) -> None:
+        """Associate this wire with a feature.
+
+        Args:
+            feature: The Feature object that created this wire.
+        """
+        from .feature_history import Feature
+        if feature is not None and not isinstance(feature, Feature):
+            raise TypeError("feature must be a Feature instance or None")
+        self._feature = feature
+        if feature is not None:
+            self._feature_id = feature.feature_id
+
+    def get_feature(self):
+        """Get the feature that created this wire."""
+        return self._feature
+
+    def get_feature_id(self) -> Optional[str]:
+        """Get the feature ID of this wire."""
+        return self._feature_id
 
     def get_edges(self) -> List[Edge]:
         """Get the edges that make up this wire.
@@ -704,6 +729,10 @@ class Face(TaggedMixin, TopoMixein):
             self.cq_face = cq_face
             TaggedMixin.__init__(self)
             TopoMixein.__init__(self, level=3, self_shape_ref=self)
+            
+            # Feature tracking for feature history
+            self._feature = None
+            self._feature_id = None
 
             outer_wire = Wire(self.cq_face.outerWire())
             outer_wire.add_tag("outer_wire")
@@ -800,6 +829,27 @@ class Face(TaggedMixin, TopoMixein):
 
     def get_center(self) -> Vector:
         return self.cq_face.Center()
+
+    def set_feature(self, feature) -> None:
+        """Associate this face with a feature.
+
+        Args:
+            feature: The Feature object that created this face.
+        """
+        from .feature_history import Feature
+        if feature is not None and not isinstance(feature, Feature):
+            raise TypeError("feature must be a Feature instance or None")
+        self._feature = feature
+        if feature is not None:
+            self._feature_id = feature.feature_id
+
+    def get_feature(self):
+        """Get the feature that created this face."""
+        return self._feature
+
+    def get_feature_id(self) -> Optional[str]:
+        """Get the feature ID of this face."""
+        return self._feature_id
 
     def __str__(self) -> str:
         """String representation."""

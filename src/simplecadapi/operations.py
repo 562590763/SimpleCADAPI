@@ -1347,12 +1347,22 @@ def _record_extrude_feature(
             input_ids.append(profile._feature.feature_id)
             parent_ids.append(profile._feature.feature_id)
     
-    # Also try _feature_id attribute
+    # Also try _feature_id attribute directly on profile
     if hasattr(profile, "_feature_id") and profile._feature_id:
         if profile._feature_id not in input_ids:
             input_ids.append(profile._feature_id)
             if profile._feature_id not in parent_ids:
                 parent_ids.append(profile._feature_id)
+    
+    # If still no parent IDs, check if the profile itself was recorded as a feature
+    # This handles cases where profile comes from a make_* operation
+    if not parent_ids and hasattr(profile, '_feature') and profile._feature:
+        # Ensure the profile feature is properly linked
+        profile_feature = profile._feature
+        if hasattr(profile_feature, 'feature_id'):
+            parent_ids.append(profile_feature.feature_id)
+            if profile_feature.feature_id not in input_ids:
+                input_ids.append(profile_feature.feature_id)
 
     # Determine feature name
     profile_name = getattr(profile, "_feature", None)
@@ -1420,14 +1430,15 @@ def _record_profile_feature(
     )
 
     # Associate profile with feature
+    # Always try set_feature method first (proper encapsulation)
     if hasattr(profile, 'set_feature'):
         profile.set_feature(feature)
-    elif hasattr(profile, '_feature'):
-        profile._feature = feature
-
-    # Also set _feature_id for direct access
-    if hasattr(profile, '_feature_id'):
-        profile._feature_id = feature.feature_id
+    else:
+        # Fallback: set attributes directly for objects without set_feature
+        if hasattr(profile, '_feature'):
+            profile._feature = feature
+        if hasattr(profile, '_feature_id'):
+            profile._feature_id = feature.feature_id
 
 
 def _record_revolve_feature(

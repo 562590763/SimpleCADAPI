@@ -255,6 +255,10 @@ class FeatureExporter:
             "import FreeCAD as App",
             "import Part",
             "import Draft",
+            "try:",
+            "    import FreeCADGui as Gui",
+            "except ImportError:",
+            "    Gui = None  # No GUI available",
             "",
             "# Create a new document",
             "doc = App.newDocument()",
@@ -288,11 +292,13 @@ class FeatureExporter:
                 lines.extend(self._generate_freecad_fillet(feature, obj_name, created_objects))
             elif feature.operation == "chamfer":
                 lines.extend(self._generate_freecad_chamfer(feature, obj_name, created_objects))
+            elif feature.operation in ["make_rectangle", "make_circle", "make_polygon"]:
+                lines.extend(self._generate_freecad_sketch(feature, obj_name))
             else:
-                # Unknown operation - add a comment
                 lines.append(f"# Unknown operation: {feature.operation}")
                 lines.append(f"# Feature: {feature.name}")
                 lines.append("")
+                continue
 
             created_objects[feature_id] = obj_name
 
@@ -403,7 +409,7 @@ class FeatureExporter:
         lines = [
             f"# Extrude: {feature.name}",
             f"{obj_name} = doc.addObject('Part::Extrusion', '{obj_name}')",
-            f"{obj_name}.Length = {distance}",
+            f"{obj_name}.LengthFwd = {distance}",
             f"{obj_name}.Dir = ({dx}, {dy}, {dz})",
         ]
 
@@ -494,5 +500,42 @@ class FeatureExporter:
             lines.append(f"{obj_name}.Base = {base_obj}")
             lines.append(f"{obj_name}.Edges = {base_obj}.Shape.Edges")
 
+        lines.append("")
+        return lines
+
+    def _generate_freecad_sketch(self, feature, obj_name: str) -> List[str]:
+        """Generate FreeCAD code for sketch/profile operations."""
+        width = self._get_param_value(feature, 'width', 0.0)
+        height = self._get_param_value(feature, 'height', 0.0)
+        center = self._get_param_value(feature, 'center', (0, 0, 0))
+        normal = self._get_param_value(feature, 'normal', (0, 0, 1))
+        
+        lines = [
+            f"# Sketch: {feature.name}",
+            f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
+        ]
+        
+        if "rectangle" in feature.operation.lower():
+            cx, cy, cz = center
+            half_w, half_h = width / 2, height / 2
+            lines.extend([
+                f"wire = Part.makePolygon([",
+                f"    App.Vector({cx-half_w}, {cy-half_h}, {cz}),",
+                f"    App.Vector({cx+half_w}, {cy-half_h}, {cz}),",
+                f"    App.Vector({cx+half_w}, {cy+half_h}, {cz}),",
+                f"    App.Vector({cx-half_w}, {cy+half_h}, {cz}),",
+                f"    App.Vector({cx-half_w}, {cy-half_h}, {cz})",
+                f"])",
+                f"{obj_name}.Shape = Part.Face(wire)",
+            ])
+        elif "circle" in feature.operation.lower():
+            cx, cy, cz = center
+            radius = self._get_param_value(feature, 'radius', 10.0)
+            lines.extend([
+                f"circle = Part.makeCircle({radius}, App.Vector({cx}, {cy}, {cz}), App.Vector({normal[0]}, {normal[1]}, {normal[2]}))",
+                f"wire = Part.Wire(circle)",
+                f"{obj_name}.Shape = Part.Face(wire)",
+            ])
+        
         lines.append("")
         return lines
