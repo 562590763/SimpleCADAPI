@@ -1,6 +1,6 @@
 """SimpleCAD API operation implementations based on the README design."""
 
-from typing import List, Tuple, Union, Optional, Sequence, cast, Dict
+from typing import List, Tuple, Union, Optional, Sequence, cast, Dict, Any
 import math
 import numpy as np
 import cadquery as cq
@@ -9,6 +9,7 @@ from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
 from OCP.TopAbs import TopAbs_SHELL
 from OCP.TopExp import TopExp_Explorer
 
+from .feature_history import FeatureType
 from .core import (
     Vertex,
     Edge,
@@ -281,7 +282,13 @@ def make_rectangle_rface(
     try:
         wire = make_rectangle_rwire(width, height, center, normal)
         cq_face = cq.Face.makeFromWires(wire.cq_wire)
-        return Face(cq_face)
+        face = Face(cq_face)
+        
+        # Copy tags and metadata from wire
+        face._tags = wire._tags.copy()
+        face._metadata = wire._metadata.copy()
+        
+        return face
     except Exception as e:
         raise ValueError(f"创建矩形面失败: {e}")
 
@@ -629,6 +636,12 @@ def make_box_rsolid(
                 "size": {"x": width, "y": height, "z": depth},
                 "bottom_face_center": bottom_face_center,
             },
+        )
+
+        # Record feature history
+        _record_primitive_feature(
+            solid, "box", FeatureType.PRIMITIVE,
+            {"width": width, "height": height, "depth": depth, "bottom_face_center": bottom_face_center}
         )
 
         return solid
@@ -1204,9 +1217,179 @@ def extrude_rsolid(
         solid.add_tag("extrusion solid")
         solid._metadata = profile._metadata.copy()
 
+        _record_extrude_feature(solid, profile, direction, distance, direction_vec)
+
         return solid
     except Exception as e:
         raise ValueError(f"拉伸失败: {e}. 请检查轮廓、方向和距离是否有效。")
+
+
+def _record_extrude_feature(
+    solid: Solid,
+    profile: Union[Wire, Face],
+    direction: Tuple[float, float, float],
+    distance: float,
+    direction_vec: Vector,
+) -> None:
+    """Record extrude operation in feature history."""
+    from .feature_history import (
+        FeatureHistory,
+        FeatureType,
+        get_global_history,
+        create_new_history,
+    )
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Model")
+
+    # Get input feature IDs if profile has them
+    input_ids = []
+    parent_ids = []
+    
+    # Try to get feature ID from profile's _feature attribute
+    if hasattr(profile, "_feature") and profile._feature:
+        if hasattr(profile._feature, "feature_id"):
+            input_ids.append(profile._feature.feature_id)
+            parent_ids.append(profile._feature.feature_id)
+    
+    # Also try _feature_id attribute
+    if hasattr(profile, "_feature_id") and profile._feature_id:
+        if profile._feature_id not in input_ids:
+            input_ids.append(profile._feature_id)
+            if profile._feature_id not in parent_ids:
+                parent_ids.append(profile._feature_id)
+
+    # Determine feature name
+    profile_name = getattr(profile, "_feature", None)
+    if profile_name and hasattr(profile_name, "name"):
+        profile_name = profile_name.name
+    else:
+        profile_name = type(profile).__name__
+
+    feature = history.add_feature(
+        name=f"Extrude_{profile_name}",
+        operation="extrude",
+        feature_type=FeatureType.EXTRUDE,
+        inputs=[profile],
+        input_ids=input_ids,
+        parameters={
+            "direction": direction,
+            "distance": distance,
+            "direction_vector": (direction_vec.x, direction_vec.y, direction_vec.z),
+        },
+        output=solid,
+        description=f"Extruded {profile_name} by {distance} units",
+        parent_ids=parent_ids,
+    )
+
+    # Associate solid with feature
+    solid.set_feature(feature)
+
+
+def _record_revolve_feature(
+    solid: Solid,
+    profile: Union[Wire, Face],
+    axis: Tuple[float, float, float],
+    angle: float,
+    origin: Tuple[float, float, float],
+    global_axis: np.ndarray,
+    global_origin: np.ndarray,
+) -> None:
+    """Record revolve operation in feature history."""
+    from .feature_history import (
+        FeatureHistory,
+        FeatureType,
+        get_global_history,
+        create_new_history,
+    )
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Model")
+
+    input_ids = []
+    parent_ids = []
+    
+    # Try to get feature ID from profile's _feature attribute
+    if hasattr(profile, "_feature") and profile._feature:
+        if hasattr(profile._feature, "feature_id"):
+            input_ids.append(profile._feature.feature_id)
+            parent_ids.append(profile._feature.feature_id)
+    
+    # Also try _feature_id attribute
+    if hasattr(profile, "_feature_id") and profile._feature_id:
+        if profile._feature_id not in input_ids:
+            input_ids.append(profile._feature_id)
+            if profile._feature_id not in parent_ids:
+                parent_ids.append(profile._feature_id)
+
+    profile_name = getattr(profile, "_feature", None)
+    if profile_name and hasattr(profile_name, "name"):
+        profile_name = profile_name.name
+    else:
+        profile_name = type(profile).__name__
+
+    feature = history.add_feature(
+        name=f"Revolve_{profile_name}",
+        operation="revolve",
+        feature_type=FeatureType.REVOLVE,
+        inputs=[profile],
+        input_ids=input_ids,
+        parameters={
+            "axis": axis,
+            "angle": angle,
+            "origin": origin,
+            "global_axis": global_axis.tolist() if isinstance(global_axis, np.ndarray) else global_axis,
+            "global_origin": global_origin.tolist() if isinstance(global_origin, np.ndarray) else global_origin,
+        },
+        output=solid,
+        description=f"Revolved {profile_name} by {angle} degrees",
+        parent_ids=parent_ids,
+    )
+
+    solid.set_feature(feature)
+
+
+def _record_primitive_feature(
+    solid: Solid,
+    primitive_type: str,
+    feature_type: Any,
+    parameters: Dict[str, Any],
+) -> None:
+    """Record primitive geometry creation in feature history."""
+    from .feature_history import (
+        FeatureHistory,
+        FeatureType,
+        get_global_history,
+        create_new_history,
+    )
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Model")
+
+    # Map primitive type to FeatureType
+    type_mapping = {
+        "box": FeatureType.PRIMITIVE,
+        "cylinder": FeatureType.PRIMITIVE,
+        "sphere": FeatureType.PRIMITIVE,
+        "cone": FeatureType.PRIMITIVE,
+    }
+    feat_type = type_mapping.get(primitive_type, FeatureType.PRIMITIVE)
+
+    feature = history.add_feature(
+        name=f"{primitive_type.capitalize()}_Primitive",
+        operation=f"make_{primitive_type}",
+        feature_type=feat_type,
+        inputs=[],
+        input_ids=[],
+        parameters=parameters,
+        output=solid,
+        description=f"Created {primitive_type} primitive",
+    )
+
+    solid.set_feature(feature)
 
 
 def revolve_rsolid(
@@ -1266,6 +1449,9 @@ def revolve_rsolid(
         # 复制标签和元数据
         solid._tags = profile._tags.copy()
         solid._metadata = profile._metadata.copy()
+
+        # Record feature history
+        _record_revolve_feature(solid, profile, axis, angle, origin, global_axis, global_origin)
 
         return solid
     except Exception as e:

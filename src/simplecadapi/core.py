@@ -887,12 +887,66 @@ class Solid(TaggedMixin, TopoMixein):
         except Exception as e:
             raise ValueError(f"初始化实体失败: {e}. 请检查输入的实体对象是否有效。")
 
-    def get_volume(self) -> float:
-        """Get volume.
+        # Initialize feature history tracking
+        self._feature = None
+        self._feature_id = None
+        self._parent_features: List[str] = []
+        self._child_features: List[str] = []
 
-        Returns:
-            Volume.
+    def set_feature(self, feature) -> None:
+        """Associate this solid with a feature.
+
+        Args:
+            feature: The Feature object that created this solid.
         """
+        from .feature_history import Feature
+        if feature is not None and not isinstance(feature, Feature):
+            raise TypeError("feature must be a Feature instance or None")
+        self._feature = feature
+        if feature is not None:
+            self._feature_id = feature.feature_id
+
+    def get_feature(self):
+        """Get the feature that created this solid."""
+        return self._feature
+
+    def get_feature_id(self) -> Optional[str]:
+        """Get the feature ID of this solid."""
+        return self._feature_id
+
+    def get_feature_history(self) -> List[Any]:
+        """Get the complete feature history tree for this solid."""
+        history: List[Any] = []
+        visited: Set[str] = set()
+
+        def traverse(feature_id: Optional[str]) -> None:
+            if not feature_id or feature_id in visited:
+                return
+            visited.add(feature_id)
+
+            from .feature_history import get_global_history
+            global_history = get_global_history()
+            if global_history:
+                feature = global_history.get_feature(feature_id)
+                if feature:
+                    history.append(feature)
+                    for parent_id in feature.parent_features:
+                        traverse(parent_id)
+
+        traverse(self._feature_id)
+        return list(reversed(history))
+
+    def add_parent_feature(self, parent_id: str) -> None:
+        """Add a parent feature dependency."""
+        if parent_id not in self._parent_features:
+            self._parent_features.append(parent_id)
+
+    def add_child_feature(self, child_id: str) -> None:
+        """Add a child feature dependency."""
+        if child_id not in self._child_features:
+            self._child_features.append(child_id)
+
+    def get_volume(self) -> float:
         try:
             return self.cq_solid.Volume()
         except Exception as e:

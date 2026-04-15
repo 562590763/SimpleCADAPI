@@ -113,6 +113,8 @@ from .constraints import (
 
 from . import field
 from . import ql
+from . import feature_history
+from . import feature_export
 
 __author__ = "SimpleCAD API Team"
 __description__ = "Simplified CAD modeling Python API based on CADQuery"
