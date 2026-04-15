@@ -34,6 +34,7 @@ class FeatureType(Enum):
     TRANSFORM = auto()      # 变换（平移、旋转、镜像）
     FIELD = auto()          # 场函数
     CUSTOM = auto()         # 自定义
+    SKETCH = auto()         # 草图/轮廓 (用于Wire/Face等2D几何体)
 
 
 @dataclass

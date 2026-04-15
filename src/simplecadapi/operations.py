@@ -135,7 +135,9 @@ def make_line_redge(
         end_vec = Vector(*end_global)
 
         cq_edge = cq.Edge.makeLine(start_vec, end_vec)
-        return Edge(cq_edge)
+        edge = Edge(cq_edge)
+        _record_profile_feature(edge, "line", {"start": start, "end": end})
+        return edge
     except Exception as e:
         raise ValueError(f"创建线段失败: {e}. 请检查起始点和结束点坐标是否有效。")
 
@@ -154,7 +156,9 @@ def make_segment_rwire(
     try:
         edge = make_line_redge(start, end)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        _record_profile_feature(wire, "line", {"start": start, "end": end})
+        return wire
     except Exception as e:
         raise ValueError(f"创建线段线失败: {e}")
 
@@ -177,7 +181,13 @@ def make_circle_redge(
         normal_vec = Vector(*normal_global)
 
         cq_edge = cq.Edge.makeCircle(radius, center_vec, normal_vec)
-        return Edge(cq_edge)
+        edge = Edge(cq_edge)
+        _record_profile_feature(
+            edge,
+            "circle",
+            {"center": center, "radius": radius, "normal": normal},
+        )
+        return edge
     except Exception as e:
         raise ValueError(f"创建圆失败: {e}. 请检查圆心坐标、半径和法向量是否有效。")
 
@@ -191,7 +201,13 @@ def make_circle_rwire(
     try:
         edge = make_circle_redge(center, radius, normal)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        _record_profile_feature(
+            wire,
+            "circle",
+            {"center": center, "radius": radius, "normal": normal},
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建圆线失败: {e}")
 
@@ -205,7 +221,15 @@ def make_circle_rface(
     try:
         wire = make_circle_rwire(center, radius, normal)
         cq_face = cq.Face.makeFromWires(wire.cq_wire)
-        return Face(cq_face)
+        face = Face(cq_face)
+        face._tags = wire._tags.copy()
+        face._metadata = wire._metadata.copy()
+        _record_profile_feature(
+            face,
+            "circle",
+            {"center": center, "radius": radius, "normal": normal},
+        )
+        return face
     except Exception as e:
         raise ValueError(f"创建圆面失败: {e}")
 
@@ -267,7 +291,16 @@ def make_rectangle_rwire(
             edges.append(cq.Edge.makeLine(start, end))
 
         cq_wire = cq.Wire.assembleEdges(edges)
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        
+        # Record feature history for this profile
+        _record_profile_feature(
+            wire, 
+            "rectangle", 
+            {"width": width, "height": height, "center": center, "normal": normal}
+        )
+        
+        return wire
     except Exception as e:
         raise ValueError(f"创建矩形失败: {e}. 请检查宽度、高度和中心点坐标是否有效。")
 
@@ -287,6 +320,12 @@ def make_rectangle_rface(
         # Copy tags and metadata from wire
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
+
+        _record_profile_feature(
+            face,
+            "rectangle",
+            {"width": width, "height": height, "center": center, "normal": normal},
+        )
         
         return face
     except Exception as e:
@@ -336,6 +375,8 @@ def make_face_from_wire_rface(
         # 复制标签和元数据
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
+
+        _record_profile_feature(face, "face", {"normal": normal})
 
         return face
     except Exception as e:
@@ -821,7 +862,13 @@ def make_three_point_arc_rwire(
     try:
         edge = make_three_point_arc_redge(start, middle, end)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        _record_profile_feature(
+            wire,
+            "arc",
+            {"start": start, "middle": middle, "end": end},
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建三点圆弧线失败: {e}")
 
@@ -902,7 +949,19 @@ def make_angle_arc_rwire(
     try:
         edge = make_angle_arc_redge(center, radius, start_angle, end_angle, normal)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        _record_profile_feature(
+            wire,
+            "arc",
+            {
+                "center": center,
+                "radius": radius,
+                "start_angle": start_angle,
+                "end_angle": end_angle,
+                "normal": normal,
+            },
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建角度圆弧线失败: {e}")
 
@@ -957,6 +1016,11 @@ def make_spline_rwire(
         if closed:
             cq_wire = cq_wire.close()  # 确保线是闭合的
         rv = Wire(cq_wire)
+        _record_profile_feature(
+            rv,
+            "spline",
+            {"points": points, "tangents": tangents, "closed": closed},
+        )
         return rv
     except Exception as e:
         raise ValueError(f"创建样条曲线线失败: {e}")
@@ -997,7 +1061,13 @@ def make_polyline_rwire(
             edges.append(edge)
 
         cq_wire = cq.Wire.assembleEdges(edges)
-        return Wire(cq_wire.close() if closed else cq_wire)
+        wire = Wire(cq_wire.close() if closed else cq_wire)
+        _record_profile_feature(
+            wire,
+            "polyline",
+            {"points": points, "closed": closed},
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建多段线失败: {e}. 请检查点坐标是否有效。")
 
@@ -1030,7 +1100,19 @@ def make_helix_redge(
         # 螺旋线通常是连续的，所以我们取第一个边
         edges = cq_wire.Edges()
         if edges:
-            return Edge(edges[0])
+            edge = Edge(edges[0])
+            _record_profile_feature(
+                edge,
+                "helix",
+                {
+                    "pitch": pitch,
+                    "height": height,
+                    "radius": radius,
+                    "center": center,
+                    "dir": dir,
+                },
+            )
+            return edge
         else:
             raise ValueError("无法从螺旋线中提取边")
     except Exception as e:
@@ -1055,7 +1137,19 @@ def make_helix_rwire(
 
         # 使用CADQuery的Wire.makeHelix方法
         cq_wire = cq.Wire.makeHelix(pitch, height, radius, center_vec, dir_vec)
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        _record_profile_feature(
+            wire,
+            "helix",
+            {
+                "pitch": pitch,
+                "height": height,
+                "radius": radius,
+                "center": center,
+                "dir": dir,
+            },
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建螺旋线失败: {e}. 请检查参数是否有效。")
 
@@ -1285,6 +1379,55 @@ def _record_extrude_feature(
 
     # Associate solid with feature
     solid.set_feature(feature)
+
+
+def _record_profile_feature(
+    profile: Any,
+    profile_type: str,
+    parameters: Dict[str, Any],
+) -> None:
+    """Record a 2D profile (Edge/Wire/Face) creation in feature history.
+    
+    This function creates a SKETCH feature for primitive 2D geometry
+    like rectangles, circles, etc. This allows downstream operations
+    (extrude, revolve) to properly reference their parent profiles.
+    
+    Args:
+        profile: The Edge, Wire, or Face to record
+        profile_type: Type of profile (e.g., 'rectangle', 'circle', 'polygon')
+        parameters: Dictionary of creation parameters
+    """
+    from .feature_history import (
+        FeatureHistory,
+        FeatureType,
+        get_global_history,
+        create_new_history,
+    )
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Model")
+
+    feature = history.add_feature(
+        name=f"{profile_type.capitalize()}_Profile",
+        operation=f"make_{profile_type}",
+        feature_type=FeatureType.SKETCH,
+        inputs=[],
+        input_ids=[],
+        parameters=parameters,
+        output=profile,
+        description=f"Created {profile_type} {type(profile).__name__.lower()}",
+    )
+
+    # Associate profile with feature
+    if hasattr(profile, 'set_feature'):
+        profile.set_feature(feature)
+    elif hasattr(profile, '_feature'):
+        profile._feature = feature
+
+    # Also set _feature_id for direct access
+    if hasattr(profile, '_feature_id'):
+        profile._feature_id = feature.feature_id
 
 
 def _record_revolve_feature(
