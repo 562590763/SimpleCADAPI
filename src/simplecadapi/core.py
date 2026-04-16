@@ -491,6 +491,10 @@ class Edge(TaggedMixin, TopoMixein):
             TaggedMixin.__init__(self)
             TopoMixein.__init__(self, level=1, self_shape_ref=self)
 
+            # Feature tracking for feature history
+            self._feature = None
+            self._feature_id = None
+
             for v in self.cq_edge.Vertices():
                 vertex = Vertex(v)
                 self.add_child(vertex)
@@ -588,6 +592,20 @@ class Edge(TaggedMixin, TopoMixein):
             result.append(tags_metadata)
 
         return "\n".join(result)
+
+    def set_feature(self, feature) -> None:
+        """Associate this edge with a feature."""
+        from .feature_history import Feature
+
+        if feature is not None and not isinstance(feature, Feature):
+            raise TypeError("feature must be a Feature instance or None")
+        self._feature = feature
+        if feature is not None:
+            self._feature_id = feature.feature_id
+
+    def get_feature(self):
+        """Get the feature that created this edge."""
+        return self._feature
 
 
 class Wire(TaggedMixin, TopoMixein):

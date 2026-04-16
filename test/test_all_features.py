@@ -1092,23 +1092,23 @@ class TestFeatureHistory(unittest.TestCase):
         """Set up test environment."""
         # Clear global history before each test
         try:
-            from simplecadapi.feature_history import clear_global_history
+            from simplecadapi import clear_global_history
             clear_global_history()
         except ImportError:
             # If clear_global_history doesn't exist, create a new history to reset state
-            from simplecadapi.feature_history import create_new_history
+            from simplecadapi import create_new_history
             create_new_history("Test Model Reset")
         except ImportError:
             # If clear_global_history doesn't exist, try to reset by creating new history
             try:
-                from simplecadapi.feature_history import create_new_history
+                from simplecadapi import create_new_history
                 create_new_history("Test Model")
             except Exception:
                 pass  # Ignore if this also fails
 
     def test_feature_history_creation(self):
         """Test feature history creation."""
-        from simplecadapi.feature_history import create_new_history, get_global_history
+        from simplecadapi import create_new_history, get_global_history
 
         history = create_new_history("Test Model")
         self.assertIsNotNone(history)
@@ -1120,7 +1120,7 @@ class TestFeatureHistory(unittest.TestCase):
     def test_basic_geometry_feature_recording(self):
         """Test basic geometry creation and feature recording."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history
+        from simplecadapi import get_global_history
 
         # Create box
         box = scad.make_box_rsolid(width=10, height=20, depth=30)
@@ -1135,7 +1135,7 @@ class TestFeatureHistory(unittest.TestCase):
     def test_extrude_operation_feature(self):
         """Test extrude operation and feature association."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history
+        from simplecadapi import get_global_history
 
         # Create profile and extrude
         profile = scad.make_rectangle_rwire(width=50, height=30)
@@ -1154,7 +1154,7 @@ class TestFeatureHistory(unittest.TestCase):
     def test_boolean_operation_feature(self):
         """Test boolean operation and feature recording."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history
+        from simplecadapi import get_global_history
 
         # Create base and cut cylinder
         box = scad.make_box_rsolid(50, 50, 10)
@@ -1195,8 +1195,8 @@ class TestFeatureHistory(unittest.TestCase):
     def test_freecad_script_generation(self):
         """Test FreeCAD script generation from feature history."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history, create_new_history
-        from simplecadapi.feature_export import FeatureExporter
+        from simplecadapi import get_global_history, create_new_history
+        from simplecadapi import FeatureExporter
 
         # Create fresh history
         create_new_history("Test Model")
@@ -1227,8 +1227,8 @@ class TestFeatureHistory(unittest.TestCase):
         import json
         import tempfile
         from pathlib import Path
-        from simplecadapi.feature_history import get_global_history, create_new_history
-        from simplecadapi.feature_export import export_feature_history_to_json
+        from simplecadapi import get_global_history, create_new_history
+        from simplecadapi import export_feature_history_to_json
 
         # Create fresh history
         create_new_history("JSON Test Model")
@@ -1347,33 +1347,33 @@ class TestFeatureHistory(unittest.TestCase):
         """Set up test environment."""
         # Clear global history before each test
         try:
-            from simplecadapi.feature_history import clear_global_history
+            from simplecadapi import clear_global_history
             clear_global_history()
         except ImportError:
             # If the function doesn't exist, just create a new history
-            from simplecadapi.feature_history import create_new_history
+            from simplecadapi import create_new_history
             create_new_history("Test Model")
 
     def test_01_module_import(self):
         """Test that all required modules can be imported."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import (
+        from simplecadapi import (
             create_new_history,
             get_global_history,
             FeatureHistory,
-            FeatureType
+            FeatureType,
         )
-        from simplecadapi.feature_export import (
+        from simplecadapi import (
             export_feature_history_to_json,
             print_feature_report,
-            FeatureExporter
+            FeatureExporter,
         )
         # If we get here, all imports succeeded
         self.assertTrue(True)
 
     def test_02_history_creation(self):
         """Test feature history creation."""
-        from simplecadapi.feature_history import create_new_history, get_global_history
+        from simplecadapi import create_new_history, get_global_history
         
         history = create_new_history("Test Model")
         self.assertIsNotNone(history)
@@ -1385,7 +1385,7 @@ class TestFeatureHistory(unittest.TestCase):
     def test_03_basic_geometry_recording(self):
         """Test basic geometry creation and feature recording."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history
+        from simplecadapi import get_global_history
         
         # Create box
         box = scad.make_box_rsolid(width=10, height=20, depth=30)
@@ -1400,7 +1400,7 @@ class TestFeatureHistory(unittest.TestCase):
     def test_04_extrude_operation(self):
         """Test extrude operation and feature association."""
         import simplecadapi as scad
-        from simplecadapi.feature_history import get_global_history
+        from simplecadapi import get_global_history
         
         # Create profile and extrude
         profile = scad.make_rectangle_rwire(width=50, height=30)

@@ -113,6 +113,24 @@ from .constraints import (
     stack,
 )
 
+from .feature_history import (
+    clear_global_history,
+    Feature,
+    FeatureHistory,
+    FeatureType,
+    create_new_history,
+    get_global_history,
+    set_global_history,
+)
+
+from .feature_export import (
+    FeatureExporter,
+    export_feature_history_to_json,
+    export_solid_with_history,
+    generate_feature_report,
+    print_feature_report,
+)
+
 from . import field
 from . import ql
 from . import feature_history
@@ -273,6 +291,18 @@ __all__ = [
     "PointAnchor",
     "AxisAnchor",
     "stack",
+    "Feature",
+    "FeatureHistory",
+    "FeatureType",
+    "clear_global_history",
+    "create_new_history",
+    "get_global_history",
+    "set_global_history",
+    "FeatureExporter",
+    "export_feature_history_to_json",
+    "export_solid_with_history",
+    "generate_feature_report",
+    "print_feature_report",
     "field",
     "ql",
 

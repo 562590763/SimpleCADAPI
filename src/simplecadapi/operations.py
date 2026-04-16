@@ -159,6 +159,8 @@ def make_segment_rwire(
         wire = Wire(cq_wire)
         if hasattr(edge, "_feature") and edge._feature is not None:
             wire.set_feature(edge._feature)
+        else:
+            _record_profile_feature(wire, "line", {"start": start, "end": end})
         return wire
     except Exception as e:
         raise ValueError(f"创建线段线失败: {e}")
@@ -377,7 +379,18 @@ def make_face_from_wire_rface(
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
 
-        _record_profile_feature(face, "face", {"normal": normal})
+        if hasattr(wire, "_feature") and wire._feature is not None:
+            face.set_feature(wire._feature)
+        else:
+            face = _record_generic_feature(
+                output_shape=face,
+                name="Face_Profile",
+                operation="make_face",
+                feature_type=FeatureType.SKETCH,
+                inputs=[wire],
+                parameters={"normal": normal},
+                description="Created face from wire",
+            )
 
         return face
     except Exception as e:
@@ -641,7 +654,17 @@ def make_wire_from_edges_rwire(edges: List[Edge]) -> Wire:
             raise ValueError("边列表不能为空")
 
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge for edge in edges])
-        return Wire(cq_wire)
+        wire = Wire(cq_wire)
+        wire = _record_generic_feature(
+            output_shape=wire,
+            name="Wire_Profile",
+            operation="make_wire",
+            feature_type=FeatureType.SKETCH,
+            inputs=edges,
+            parameters={"edge_count": len(edges)},
+            description=f"Created wire from {len(edges)} edges",
+        )
+        return wire
     except Exception as e:
         raise ValueError(f"创建线失败: {e}. 请检查输入的边是否有效。")
 
@@ -957,7 +980,13 @@ def make_three_point_arc_redge(
         end_vec = Vector(*end_global)
 
         cq_edge = cq.Edge.makeThreePointArc(start_vec, middle_vec, end_vec)
-        return Edge(cq_edge)
+        edge = Edge(cq_edge)
+        _record_profile_feature(
+            edge,
+            "arc",
+            {"start": start, "middle": middle, "end": end},
+        )
+        return edge
     except Exception as e:
         raise ValueError(f"创建三点圆弧失败: {e}. 请检查三个点的坐标是否有效且不共线。")
 
@@ -1041,7 +1070,19 @@ def make_angle_arc_redge(
 
         # 使用三点圆弧方法
         cq_edge = cq.Edge.makeThreePointArc(start_vec, mid_vec, end_vec)
-        return Edge(cq_edge)
+        edge = Edge(cq_edge)
+        _record_profile_feature(
+            edge,
+            "arc",
+            {
+                "center": center,
+                "radius": radius,
+                "start_angle": start_angle,
+                "end_angle": end_angle,
+                "normal": normal,
+            },
+        )
+        return edge
     except Exception as e:
         raise ValueError(f"创建角度圆弧失败: {e}. 请检查参数是否有效。")
 

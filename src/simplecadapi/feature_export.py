@@ -269,6 +269,8 @@ class FeatureExporter:
 
         # Track created objects for dependencies
         created_objects = {}
+        tree_objects = {}
+        terminal_feature_ids = set(self.history.ordered_features)
 
         for i, feature_id in enumerate(self.history.ordered_features):
             feature = self.history.features.get(feature_id)
@@ -276,64 +278,97 @@ class FeatureExporter:
                 continue
 
             obj_name = f"Feature_{i:03d}_{feature.name}"
+            result_name = f"{obj_name}_Result"
 
             # Generate code based on operation type
             if feature.operation == "make_box":
-                lines.extend(self._generate_freecad_box(feature, obj_name))
+                lines.extend(self._generate_freecad_box(feature, result_name))
             elif feature.operation == "make_cylinder":
-                lines.extend(self._generate_freecad_cylinder(feature, obj_name))
+                lines.extend(self._generate_freecad_cylinder(feature, result_name))
             elif feature.operation == "make_sphere":
-                lines.extend(self._generate_freecad_sphere(feature, obj_name))
+                lines.extend(self._generate_freecad_sphere(feature, result_name))
             elif feature.operation == "extrude":
-                lines.extend(self._generate_freecad_extrude(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_extrude(feature, result_name, created_objects))
             elif feature.operation == "revolve":
-                lines.extend(self._generate_freecad_revolve(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_revolve(feature, result_name, created_objects))
             elif feature.operation in ["boolean_union", "boolean_cut", "boolean_intersect"]:
-                lines.extend(self._generate_freecad_boolean(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_boolean(feature, result_name, created_objects))
             elif feature.operation == "fillet":
-                lines.extend(self._generate_freecad_fillet(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_fillet(feature, result_name, created_objects))
             elif feature.operation == "chamfer":
-                lines.extend(self._generate_freecad_chamfer(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_chamfer(feature, result_name, created_objects))
             elif feature.operation == "shell":
-                lines.extend(self._generate_freecad_shell(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_shell(feature, result_name, created_objects))
             elif feature.operation == "make_cone":
-                lines.extend(self._generate_freecad_cone(feature, obj_name))
+                lines.extend(self._generate_freecad_cone(feature, result_name))
             elif feature.operation == "make_torus":
-                lines.extend(self._generate_freecad_torus(feature, obj_name))
+                lines.extend(self._generate_freecad_torus(feature, result_name))
             elif feature.operation in [
                 "make_rectangle",
                 "make_circle",
                 "make_polygon",
                 "make_line",
+                "make_arc",
                 "make_polyline",
                 "make_helix",
             ]:
-                lines.extend(self._generate_freecad_sketch(feature, obj_name))
+                lines.extend(self._generate_freecad_sketch(feature, result_name))
+            elif feature.operation == "make_wire":
+                lines.extend(self._generate_freecad_wire(feature, obj_name, created_objects, tree_objects))
+            elif feature.operation == "make_face":
+                lines.extend(self._generate_freecad_face(feature, obj_name, created_objects, tree_objects))
             elif feature.operation == "loft":
-                lines.extend(self._generate_freecad_loft(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_loft(feature, result_name, created_objects))
             elif feature.operation == "sweep":
-                lines.extend(self._generate_freecad_sweep(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_sweep(feature, result_name, created_objects))
             elif feature.operation == "helical_sweep":
-                lines.extend(self._generate_freecad_helical_sweep(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_helical_sweep(feature, result_name, created_objects))
             elif feature.operation == "translate_shape":
-                lines.extend(self._generate_freecad_translate(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_translate(feature, result_name, created_objects))
             elif feature.operation == "rotate_shape":
-                lines.extend(self._generate_freecad_rotate(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_rotate(feature, result_name, created_objects))
             elif feature.operation == "scale_shape":
-                lines.extend(self._generate_freecad_scale(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_scale(feature, result_name, created_objects))
             elif feature.operation == "mirror_shape":
-                lines.extend(self._generate_freecad_mirror(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_mirror(feature, result_name, created_objects))
             elif feature.operation == "linear_pattern":
-                lines.extend(self._generate_freecad_linear_pattern(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_linear_pattern(feature, result_name, created_objects))
             elif feature.operation == "radial_pattern":
-                lines.extend(self._generate_freecad_radial_pattern(feature, obj_name, created_objects))
+                lines.extend(self._generate_freecad_radial_pattern(feature, result_name, created_objects))
             else:
                 lines.append(f"# Unknown operation: {feature.operation}")
                 lines.append(f"# Feature: {feature.name}")
                 lines.append("")
                 continue
 
-            created_objects[feature_id] = obj_name
+            if feature.operation in {"make_wire", "make_face"}:
+                tree_objects[feature_id] = obj_name
+                created_objects[feature_id] = f"{obj_name}_Result"
+            else:
+                lines.extend(self._wrap_feature_tree(feature, obj_name, result_name, tree_objects))
+                tree_objects[feature_id] = obj_name
+                created_objects[feature_id] = result_name
+
+            for input_id in (getattr(feature, "input_ids", None) or []):
+                terminal_feature_ids.discard(input_id)
+            for parent_id in (getattr(feature, "parent_features", None) or []):
+                terminal_feature_ids.discard(parent_id)
+
+        if len(terminal_feature_ids) == 1:
+            final_feature_id = next(iter(terminal_feature_ids))
+            lines.extend([
+                "# Show only the terminal result in the 3D view",
+            ])
+            for feature_id in self.history.ordered_features:
+                result_object_name = created_objects.get(feature_id)
+                if not result_object_name:
+                    continue
+                visible = feature_id == final_feature_id
+                lines.extend([
+                    f"if hasattr({result_object_name}, 'ViewObject') and hasattr({result_object_name}.ViewObject, 'Visibility'):",
+                    f"    {result_object_name}.ViewObject.Visibility = {str(visible)}",
+                ])
+            lines.append("")
 
         # Add final recompute
         lines.extend([
@@ -351,6 +386,33 @@ class FeatureExporter:
         ])
 
         return "\n".join(lines)
+
+    def _wrap_feature_tree(
+        self,
+        feature,
+        group_name: str,
+        result_name: str,
+        tree_objects: dict,
+    ) -> List[str]:
+        """Wrap a result object and its input tree nodes into a single tree node."""
+        input_tree_names: List[str] = []
+        for feature_id in (getattr(feature, "input_ids", None) or []):
+            tree_name = tree_objects.get(feature_id)
+            if tree_name and tree_name not in input_tree_names:
+                input_tree_names.append(tree_name)
+        for feature_id in (getattr(feature, "parent_features", None) or []):
+            tree_name = tree_objects.get(feature_id)
+            if tree_name and tree_name not in input_tree_names:
+                input_tree_names.append(tree_name)
+
+        lines = [
+            f"{group_name} = doc.addObject('App::Part', '{group_name}')",
+            f"{group_name}.addObject({result_name})",
+        ]
+        for input_tree_name in input_tree_names:
+            lines.append(f"{group_name}.addObject({input_tree_name})")
+        lines.append("")
+        return lines
 
     def _get_param_value(self, feature, param_name, default=None):
         """Get parameter value from feature."""
@@ -381,22 +443,53 @@ class FeatureExporter:
             f"{obj_name}.Placement.Rotation = App.Rotation(App.Vector(0, 0, 1), {self._vector_expr(axis_tuple)})",
         ]
 
+    def _rotation_expr(
+        self,
+        axis: Any,
+        default: Tuple[float, float, float] = (0, 0, 1),
+        angle: float = 0.0,
+    ) -> str:
+        return f"App.Rotation({self._vector_expr(axis, default)}, {angle})"
+
+    def _placement_expr(
+        self,
+        base: Any = (0, 0, 0),
+        axis: Any = (0, 0, 1),
+        angle: float = 0.0,
+        center: Optional[Any] = None,
+    ) -> str:
+        if center is None:
+            return (
+                f"App.Placement({self._vector_expr(base)}, "
+                f"{self._rotation_expr(axis, angle=angle)})"
+            )
+        return (
+            f"App.Placement({self._vector_expr(base)}, "
+            f"{self._rotation_expr(axis, angle=angle)}, "
+            f"{self._vector_expr(center)})"
+        )
+
     def _generate_freecad_box(self, feature, obj_name: str) -> List[str]:
         """Generate FreeCAD code for box primitive."""
         width = self._get_param_value(feature, 'width', 10.0)
         height = self._get_param_value(feature, 'height', 10.0)
         depth = self._get_param_value(feature, 'depth', 10.0)
         bottom_face_center = self._get_param_value(feature, 'bottom_face_center', (0, 0, 0))
+        origin = (
+            bottom_face_center[0] - width / 2,
+            bottom_face_center[1] - height / 2,
+            bottom_face_center[2],
+        )
 
         lines = [
             f"# Box: {feature.name}",
             f"{obj_name} = doc.addObject('Part::Box', '{obj_name}')",
-            f"{obj_name}.Width = {width}",
-            f"{obj_name}.Height = {height}",
-            f"{obj_name}.Length = {depth}",
+            f"{obj_name}.Length = {width}",
+            f"{obj_name}.Width = {height}",
+            f"{obj_name}.Height = {depth}",
         ]
-        if self._to_vector_tuple(bottom_face_center, (0, 0, 0)) != (0, 0, 0):
-            lines.append(f"{obj_name}.Placement.Base = {self._vector_expr(bottom_face_center)}")
+        if self._to_vector_tuple(origin, (0, 0, 0)) != (0, 0, 0):
+            lines.append(f"{obj_name}.Placement.Base = {self._vector_expr(origin)}")
         lines.append("")
         return lines
 
@@ -506,6 +599,19 @@ class FeatureExporter:
 
         return names
 
+    def _get_input_tree_names(self, feature, tree_objects: dict) -> List[str]:
+        names: List[str] = []
+        candidate_ids = []
+        candidate_ids.extend(getattr(feature, "input_ids", None) or [])
+        candidate_ids.extend(getattr(feature, "parent_features", None) or [])
+
+        for feature_id in candidate_ids:
+            obj_name = tree_objects.get(feature_id)
+            if obj_name and obj_name not in names:
+                names.append(obj_name)
+
+        return names
+
     def _get_parent_object_names(self, feature, created_objects: dict) -> tuple:
         parent_ids = getattr(feature, 'parent_features', None) or []
         
@@ -600,12 +706,11 @@ class FeatureExporter:
         
         base_obj = self._get_input_object_name(feature, created_objects)
         if base_obj:
-            # Create a copy with transformed placement
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_shape = {base_obj}.Shape.copy()",
-                f"{obj_name}_shape.translate({self._vector_expr(offset)})",
-                f"{obj_name}.Shape = {obj_name}_shape",
+                f"{obj_name} = doc.addObject('App::Link', '{obj_name}')",
+                f"{obj_name}.LinkedObject = {base_obj}",
+                f"{obj_name}.LinkTransform = True",
+                f"{obj_name}.LinkPlacement = {self._placement_expr(base=offset)}",
             ])
         else:
             lines.append(f"# Warning: Base object not found for translate")
@@ -626,10 +731,10 @@ class FeatureExporter:
         base_obj = self._get_input_object_name(feature, created_objects)
         if base_obj:
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_shape = {base_obj}.Shape.copy()",
-                f"{obj_name}_shape.rotate({self._vector_expr(origin)}, {self._vector_expr(axis, (0, 0, 1))}, {angle})",
-                f"{obj_name}.Shape = {obj_name}_shape",
+                f"{obj_name} = doc.addObject('App::Link', '{obj_name}')",
+                f"{obj_name}.LinkedObject = {base_obj}",
+                f"{obj_name}.LinkTransform = True",
+                f"{obj_name}.LinkPlacement = {self._placement_expr(axis=axis, angle=angle, center=origin)}",
             ])
         else:
             lines.append(f"# Warning: Base object not found for rotate")
@@ -672,8 +777,10 @@ class FeatureExporter:
         base_obj = self._get_input_object_name(feature, created_objects)
         if base_obj:
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}.Shape = {base_obj}.Shape.mirror({self._vector_expr(plane_origin)}, {self._vector_expr(plane_normal, (1, 0, 0))})",
+                f"{obj_name} = doc.addObject('Part::Mirroring', '{obj_name}')",
+                f"{obj_name}.Source = {base_obj}",
+                f"{obj_name}.Base = {self._vector_expr(plane_origin)}",
+                f"{obj_name}.Normal = {self._vector_expr(plane_normal, (1, 0, 0))}",
             ])
         else:
             lines.append(f"# Warning: Base object not found for mirror")
@@ -691,17 +798,78 @@ class FeatureExporter:
         ]
 
         if input_objects and len(input_objects) >= 2:
-            section_exprs = [
-                f"({name}.Shape.Wires[0] if len({name}.Shape.Wires) else {name}.Shape.OuterWire)"
-                for name in input_objects
-            ]
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_sections = [{', '.join(section_exprs)}]",
-                f"{obj_name}.Shape = Part.makeLoft({obj_name}_sections, True, {ruled})",
+                f"{obj_name} = doc.addObject('Part::Loft', '{obj_name}')",
+                f"{obj_name}.Sections = [{', '.join(input_objects)}]",
+                f"{obj_name}.Solid = True",
+                f"{obj_name}.Ruled = {ruled}",
+                f"{obj_name}.Closed = False",
             ])
         else:
             lines.append("# Warning: Loft sections not found")
+
+        lines.append("")
+        return lines
+
+    def _generate_freecad_wire(
+        self,
+        feature,
+        obj_name: str,
+        created_objects: dict,
+        tree_objects: dict,
+    ) -> List[str]:
+        """Generate FreeCAD code for wire creation from edges."""
+        input_objects = self._get_input_object_names(feature, created_objects)
+        input_tree_names = self._get_input_tree_names(feature, tree_objects)
+        result_name = f"{obj_name}_Result"
+        lines = [
+            f"# Wire: {feature.name}",
+        ]
+
+        if input_objects:
+            edge_exprs = [f"{name}.Shape.Edges[0]" for name in input_objects]
+            lines.extend([
+                f"{obj_name} = doc.addObject('App::Part', '{obj_name}')",
+                f"{result_name} = doc.addObject('Part::Feature', '{result_name}')",
+                f"{result_name}_edges = [{', '.join(edge_exprs)}]",
+                f"{result_name}.Shape = Part.Wire({result_name}_edges)",
+                f"{obj_name}.addObject({result_name})",
+            ])
+            for input_tree_name in input_tree_names:
+                lines.append(f"{obj_name}.addObject({input_tree_name})")
+        else:
+            lines.append("# Warning: Wire edges not found")
+
+        lines.append("")
+        return lines
+
+    def _generate_freecad_face(
+        self,
+        feature,
+        obj_name: str,
+        created_objects: dict,
+        tree_objects: dict,
+    ) -> List[str]:
+        """Generate FreeCAD code for face creation from a wire."""
+        base_obj = self._get_input_object_name(feature, created_objects)
+        input_tree_names = self._get_input_tree_names(feature, tree_objects)
+        result_name = f"{obj_name}_Result"
+        lines = [
+            f"# Face: {feature.name}",
+        ]
+
+        if base_obj:
+            lines.extend([
+                f"{obj_name} = doc.addObject('App::Part', '{obj_name}')",
+                f"{result_name} = doc.addObject('Part::Feature', '{result_name}')",
+                f"{result_name}_wire = {base_obj}.Shape.Wires[0] if len({base_obj}.Shape.Wires) else Part.Wire({base_obj}.Shape.Edges)",
+                f"{result_name}.Shape = Part.Face({result_name}_wire)",
+                f"{obj_name}.addObject({result_name})",
+            ])
+            for input_tree_name in input_tree_names:
+                lines.append(f"{obj_name}.addObject({input_tree_name})")
+        else:
+            lines.append("# Warning: Base wire not found for face")
 
         lines.append("")
         return lines
@@ -718,12 +886,12 @@ class FeatureExporter:
         if len(input_objects) >= 2:
             profile_obj, path_obj = input_objects[:2]
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_profile_shape = {profile_obj}.Shape",
-                f"{obj_name}_profile_wire = {obj_name}_profile_shape.Wires[0] if len({obj_name}_profile_shape.Wires) else Part.Wire({obj_name}_profile_shape.Edges)",
-                f"{obj_name}_path_shape = {path_obj}.Shape",
-                f"{obj_name}_path_wire = {obj_name}_path_shape.Wires[0] if len({obj_name}_path_shape.Wires) else Part.Wire({obj_name}_path_shape.Edges)",
-                f"{obj_name}.Shape = {obj_name}_path_wire.makePipeShell([{obj_name}_profile_wire], True, {is_frenet})",
+                f"{obj_name} = doc.addObject('Part::Sweep', '{obj_name}')",
+                f"{obj_name}.Sections = [{profile_obj}]",
+                f"{obj_name}.Spine = ({path_obj}, [])",
+                f"{obj_name}.Solid = True",
+                f"{obj_name}.Frenet = {is_frenet}",
+                f"{obj_name}.Transition = 'Transformed'",
             ])
         else:
             lines.append("# Warning: Sweep profile/path not found")
@@ -745,21 +913,20 @@ class FeatureExporter:
         ]
 
         if base_obj:
+            spine_obj_name = f"{obj_name}_Spine"
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_profile_shape = {base_obj}.Shape",
-                f"{obj_name}_profile_wire = {obj_name}_profile_shape.Wires[0] if len({obj_name}_profile_shape.Wires) else Part.Wire({obj_name}_profile_shape.Edges)",
-                f"{obj_name}_helix = Part.makeHelix({pitch}, {height}, {radius})",
-                f"{obj_name}_dir = {self._vector_expr(direction, (0, 0, 1))}",
-                f"{obj_name}_default_dir = App.Vector(0, 0, 1)",
-                f"{obj_name}_rotation_axis = {obj_name}_default_dir.cross({obj_name}_dir)",
-                f"{obj_name}_angle = math.degrees({obj_name}_default_dir.getAngle({obj_name}_dir)) if {obj_name}_dir.Length > 1e-9 else 0.0",
-                f"if {obj_name}_rotation_axis.Length > 1e-9 and abs({obj_name}_angle) > 1e-9:",
-                f"    {obj_name}_helix.rotate(App.Vector(0, 0, 0), {obj_name}_rotation_axis, {obj_name}_angle)",
-                f"elif {obj_name}_dir.Length > 1e-9 and {obj_name}_dir.dot({obj_name}_default_dir) < 0:",
-                f"    {obj_name}_helix.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), 180)",
-                f"{obj_name}_helix.translate({self._vector_expr(center)})",
-                f"{obj_name}.Shape = {obj_name}_helix.makePipeShell([{obj_name}_profile_wire], True, True)",
+                f"{spine_obj_name} = doc.addObject('Part::Helix', '{spine_obj_name}')",
+                f"{spine_obj_name}.Pitch = {pitch}",
+                f"{spine_obj_name}.Height = {height}",
+                f"{spine_obj_name}.Radius = {radius}",
+                f"{spine_obj_name}.Angle = 0",
+                f"{spine_obj_name}.Placement = App.Placement({self._vector_expr(center)}, App.Rotation(App.Vector(0, 0, 1), {self._vector_expr(direction, (0, 0, 1))}))",
+                f"{obj_name} = doc.addObject('Part::Sweep', '{obj_name}')",
+                f"{obj_name}.Sections = [{base_obj}]",
+                f"{obj_name}.Spine = ({spine_obj_name}, [])",
+                f"{obj_name}.Solid = True",
+                f"{obj_name}.Frenet = True",
+                f"{obj_name}.Transition = 'Transformed'",
             ])
         else:
             lines.append("# Warning: Base object not found for helical sweep")
@@ -778,10 +945,10 @@ class FeatureExporter:
 
         if base_obj:
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_shape = {base_obj}.Shape.copy()",
-                f"{obj_name}_shape.translate({self._vector_expr(offset)})",
-                f"{obj_name}.Shape = {obj_name}_shape",
+                f"{obj_name} = doc.addObject('App::Link', '{obj_name}')",
+                f"{obj_name}.LinkedObject = {base_obj}",
+                f"{obj_name}.LinkTransform = True",
+                f"{obj_name}.LinkPlacement = {self._placement_expr(base=offset)}",
             ])
         else:
             lines.append("# Warning: Base object not found for linear pattern")
@@ -802,10 +969,10 @@ class FeatureExporter:
 
         if base_obj:
             lines.extend([
-                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
-                f"{obj_name}_shape = {base_obj}.Shape.copy()",
-                f"{obj_name}_shape.rotate({self._vector_expr(center)}, {self._vector_expr(axis, (0, 0, 1))}, {angle})",
-                f"{obj_name}.Shape = {obj_name}_shape",
+                f"{obj_name} = doc.addObject('App::Link', '{obj_name}')",
+                f"{obj_name}.LinkedObject = {base_obj}",
+                f"{obj_name}.LinkTransform = True",
+                f"{obj_name}.LinkPlacement = {self._placement_expr(axis=axis, angle=angle, center=center)}",
             ])
         else:
             lines.append("# Warning: Base object not found for radial pattern")
@@ -921,6 +1088,23 @@ class FeatureExporter:
             lines.extend([
                 f"{obj_name}.Shape = Part.makeLine({self._vector_expr(start)}, {self._vector_expr(end)})",
             ])
+        elif feature.operation == "make_arc":
+            start = self._get_param_value(feature, 'start')
+            middle = self._get_param_value(feature, 'middle')
+            end = self._get_param_value(feature, 'end')
+            if start is not None and middle is not None and end is not None:
+                lines.extend([
+                    f"{obj_name}_arc = Part.Arc({self._vector_expr(start)}, {self._vector_expr(middle)}, {self._vector_expr(end)})",
+                    f"{obj_name}.Shape = {obj_name}_arc.toShape()",
+                ])
+            else:
+                center = self._get_param_value(feature, 'center', (0, 0, 0))
+                radius = self._get_param_value(feature, 'radius', 10.0)
+                start_angle = self._get_param_value(feature, 'start_angle', 0.0)
+                end_angle = self._get_param_value(feature, 'end_angle', 90.0)
+                lines.extend([
+                    f"{obj_name}.Shape = Part.makeCircle({radius}, {self._vector_expr(center)}, {self._vector_expr(normal, (0, 0, 1))}, {start_angle}, {end_angle})",
+                ])
         elif feature.operation == "make_polyline":
             points = self._get_param_value(feature, 'points', [])
             closed = self._get_param_value(feature, 'closed', False)
