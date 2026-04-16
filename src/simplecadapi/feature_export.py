@@ -312,7 +312,7 @@ class FeatureExporter:
                 "make_polyline",
                 "make_helix",
             ]:
-                lines.extend(self._generate_freecad_sketch(feature, result_name))
+                lines.extend(self._generate_freecad_sketch(feature, obj_name))
             elif feature.operation == "make_wire":
                 lines.extend(self._generate_freecad_wire(feature, obj_name, created_objects, tree_objects))
             elif feature.operation == "make_face":
@@ -341,9 +341,20 @@ class FeatureExporter:
                 lines.append("")
                 continue
 
-            if feature.operation in {"make_wire", "make_face"}:
+            if feature.operation in {
+                "make_rectangle",
+                "make_circle",
+                "make_polygon",
+                "make_line",
+                "make_arc",
+                "make_polyline",
+                "make_helix",
+            }:
                 tree_objects[feature_id] = obj_name
-                created_objects[feature_id] = f"{obj_name}_Result"
+                created_objects[feature_id] = obj_name
+            elif feature.operation in {"make_wire", "make_face"}:
+                tree_objects[feature_id] = obj_name
+                created_objects[feature_id] = f"{obj_name}_Shape"
             else:
                 lines.extend(self._wrap_feature_tree(feature, obj_name, result_name, tree_objects))
                 tree_objects[feature_id] = obj_name
@@ -356,17 +367,31 @@ class FeatureExporter:
 
         if len(terminal_feature_ids) == 1:
             final_feature_id = next(iter(terminal_feature_ids))
+            final_result_object_name = created_objects.get(final_feature_id)
             lines.extend([
-                "# Show only the terminal result in the 3D view",
+                "# Keep feature containers visible in the tree, but show only terminal geometry by default",
             ])
             for feature_id in self.history.ordered_features:
-                result_object_name = created_objects.get(feature_id)
-                if not result_object_name:
+                tree_object_name = tree_objects.get(feature_id)
+                if not tree_object_name:
                     continue
-                visible = feature_id == final_feature_id
+                result_object_name = created_objects.get(feature_id)
+                if tree_object_name != result_object_name:
+                    lines.extend([
+                        f"if hasattr({tree_object_name}, 'ViewObject') and hasattr({tree_object_name}.ViewObject, 'Visibility'):",
+                        f"    {tree_object_name}.ViewObject.Visibility = True",
+                    ])
+                if result_object_name:
+                    visible = feature_id == final_feature_id
+                    lines.extend([
+                        f"if hasattr({result_object_name}, 'ViewObject') and hasattr({result_object_name}.ViewObject, 'Visibility'):",
+                        f"    {result_object_name}.ViewObject.Visibility = {str(visible)}",
+                    ])
+            if final_result_object_name:
                 lines.extend([
-                    f"if hasattr({result_object_name}, 'ViewObject') and hasattr({result_object_name}.ViewObject, 'Visibility'):",
-                    f"    {result_object_name}.ViewObject.Visibility = {str(visible)}",
+                    "# Keep the terminal solid opaque and let FreeCAD use its default display mode",
+                    f"if hasattr({final_result_object_name}, 'ViewObject') and hasattr({final_result_object_name}.ViewObject, 'Transparency'):",
+                    f"    {final_result_object_name}.ViewObject.Transparency = 0",
                 ])
             lines.append("")
 
@@ -821,7 +846,7 @@ class FeatureExporter:
         """Generate FreeCAD code for wire creation from edges."""
         input_objects = self._get_input_object_names(feature, created_objects)
         input_tree_names = self._get_input_tree_names(feature, tree_objects)
-        result_name = f"{obj_name}_Result"
+        shape_name = f"{obj_name}_Shape"
         lines = [
             f"# Wire: {feature.name}",
         ]
@@ -830,10 +855,10 @@ class FeatureExporter:
             edge_exprs = [f"{name}.Shape.Edges[0]" for name in input_objects]
             lines.extend([
                 f"{obj_name} = doc.addObject('App::Part', '{obj_name}')",
-                f"{result_name} = doc.addObject('Part::Feature', '{result_name}')",
-                f"{result_name}_edges = [{', '.join(edge_exprs)}]",
-                f"{result_name}.Shape = Part.Wire({result_name}_edges)",
-                f"{obj_name}.addObject({result_name})",
+                f"{shape_name} = doc.addObject('Part::Feature', '{shape_name}')",
+                f"{shape_name}_edges = [{', '.join(edge_exprs)}]",
+                f"{shape_name}.Shape = Part.Wire({shape_name}_edges)",
+                f"{obj_name}.addObject({shape_name})",
             ])
             for input_tree_name in input_tree_names:
                 lines.append(f"{obj_name}.addObject({input_tree_name})")
@@ -853,7 +878,7 @@ class FeatureExporter:
         """Generate FreeCAD code for face creation from a wire."""
         base_obj = self._get_input_object_name(feature, created_objects)
         input_tree_names = self._get_input_tree_names(feature, tree_objects)
-        result_name = f"{obj_name}_Result"
+        shape_name = f"{obj_name}_Shape"
         lines = [
             f"# Face: {feature.name}",
         ]
@@ -861,10 +886,10 @@ class FeatureExporter:
         if base_obj:
             lines.extend([
                 f"{obj_name} = doc.addObject('App::Part', '{obj_name}')",
-                f"{result_name} = doc.addObject('Part::Feature', '{result_name}')",
-                f"{result_name}_wire = {base_obj}.Shape.Wires[0] if len({base_obj}.Shape.Wires) else Part.Wire({base_obj}.Shape.Edges)",
-                f"{result_name}.Shape = Part.Face({result_name}_wire)",
-                f"{obj_name}.addObject({result_name})",
+                f"{shape_name} = doc.addObject('Part::Feature', '{shape_name}')",
+                f"{shape_name}_wire = {base_obj}.Shape.Wires[0] if len({base_obj}.Shape.Wires) else Part.Wire({base_obj}.Shape.Edges)",
+                f"{shape_name}.Shape = Part.Face({shape_name}_wire)",
+                f"{obj_name}.addObject({shape_name})",
             ])
             for input_tree_name in input_tree_names:
                 lines.append(f"{obj_name}.addObject({input_tree_name})")
@@ -1133,5 +1158,15 @@ class FeatureExporter:
                 f"{obj_name}.Shape = {obj_name}_shape",
             ])
 
+        lines.extend([
+            f"if hasattr({obj_name}, 'ViewObject') and hasattr({obj_name}.ViewObject, 'LineWidth'):",
+            f"    {obj_name}.ViewObject.LineWidth = 4",
+            f"if hasattr({obj_name}, 'ViewObject') and hasattr({obj_name}.ViewObject, 'PointSize'):",
+            f"    {obj_name}.ViewObject.PointSize = 6",
+            f"if hasattr({obj_name}, 'ViewObject') and hasattr({obj_name}.ViewObject, 'LineColor'):",
+            f"    {obj_name}.ViewObject.LineColor = (1.0, 0.35, 0.0)",
+            f"if hasattr({obj_name}, 'ViewObject') and hasattr({obj_name}.ViewObject, 'PointColor'):",
+            f"    {obj_name}.ViewObject.PointColor = (1.0, 0.35, 0.0)",
+        ])
         lines.append("")
         return lines
