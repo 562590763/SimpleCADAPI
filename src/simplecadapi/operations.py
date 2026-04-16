@@ -5,9 +5,9 @@ import math
 import numpy as np
 import cadquery as cq
 from cadquery import Vector
-from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
-from OCP.TopAbs import TopAbs_SHELL
-from OCP.TopExp import TopExp_Explorer
+from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing  # type: ignore[reportAttributeAccessIssue]
+from OCP.TopAbs import TopAbs_SHELL  # type: ignore[reportAttributeAccessIssue]
+from OCP.TopExp import TopExp_Explorer  # type: ignore[reportAttributeAccessIssue]
 
 from .feature_history import FeatureType
 from .core import (
@@ -157,7 +157,8 @@ def make_segment_rwire(
         edge = make_line_redge(start, end)
         cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
         wire = Wire(cq_wire)
-        _record_profile_feature(wire, "line", {"start": start, "end": end})
+        if hasattr(edge, "_feature") and edge._feature is not None:
+            wire.set_feature(edge._feature)
         return wire
     except Exception as e:
         raise ValueError(f"创建线段线失败: {e}")
@@ -199,8 +200,15 @@ def make_circle_rwire(
 ) -> Wire:
     """Create a circular wire."""
     try:
-        edge = make_circle_redge(center, radius, normal)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+
+        center_vec = Vector(*center_global)
+        normal_vec = Vector(*normal_global)
+
+        cq_edge = cq.Edge.makeCircle(radius, center_vec, normal_vec)
+        cq_wire = cq.Wire.assembleEdges([cq_edge])
         wire = Wire(cq_wire)
         _record_profile_feature(
             wire,
@@ -224,11 +232,8 @@ def make_circle_rface(
         face = Face(cq_face)
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
-        _record_profile_feature(
-            face,
-            "circle",
-            {"center": center, "radius": radius, "normal": normal},
-        )
+        if hasattr(wire, "_feature") and wire._feature is not None:
+            face.set_feature(wire._feature)
         return face
     except Exception as e:
         raise ValueError(f"创建圆面失败: {e}")
@@ -320,12 +325,8 @@ def make_rectangle_rface(
         # Copy tags and metadata from wire
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
-
-        _record_profile_feature(
-            face,
-            "rectangle",
-            {"width": width, "height": height, "center": center, "normal": normal},
-        )
+        if hasattr(wire, "_feature") and wire._feature is not None:
+            face.set_feature(wire._feature)
         
         return face
     except Exception as e:
@@ -728,6 +729,18 @@ def make_cylinder_rsolid(
             },
         )
 
+        _record_primitive_feature(
+            solid,
+            "cylinder",
+            FeatureType.PRIMITIVE,
+            {
+                "radius": radius,
+                "height": height,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
+        )
+
         return solid
     except Exception as e:
         raise ValueError(
@@ -771,6 +784,19 @@ def make_cone_rsolid(
             "geo",
             {
                 "type": "cone",
+                "bottom_radius": bottom_radius,
+                "top_radius": top_radius,
+                "height": height,
+                "bottom_face_center": bottom_face_center,
+                "axis": axis,
+            },
+        )
+
+        _record_primitive_feature(
+            solid,
+            "cone",
+            FeatureType.PRIMITIVE,
+            {
                 "bottom_radius": bottom_radius,
                 "top_radius": top_radius,
                 "height": height,
@@ -826,9 +852,92 @@ def make_sphere_rsolid(
             },
         )
 
+        _record_primitive_feature(
+            solid,
+            "sphere",
+            FeatureType.PRIMITIVE,
+            {"radius": radius, "center": center},
+        )
+
         return solid
     except Exception as e:
         raise ValueError(f"创建球体失败: {e}. 请检查半径和中心点坐标是否有效。")
+
+
+def make_torus_rsolid(
+    radius1: float,
+    radius2: float,
+    center: Tuple[float, float, float] = (0, 0, 0),
+    axis: Tuple[float, float, float] = (0, 0, 1),
+) -> Solid:
+    """Create a torus (donut) solid.
+
+    Args:
+        radius1: Major radius (distance from center to tube center)
+        radius2: Minor radius (tube radius)
+        center: Center point of the torus
+        axis: Normal axis of the torus (default: Z-axis)
+
+    Returns:
+        A Solid representing a torus
+
+    Raises:
+        ValueError: If radius1 <= radius2 or if radius2 <= 0
+
+    Example:
+        >>> torus = make_torus_rsolid(radius1=20, radius2=5)
+    """
+    try:
+        if radius2 <= 0:
+            raise ValueError("Minor radius must be greater than 0")
+        if radius1 <= radius2:
+            raise ValueError("Major radius must be greater than minor radius")
+
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        axis_global = cs.transform_vector(np.array(axis))
+
+        center_vec = Vector(*center_global)
+        axis_vec = Vector(*axis_global)
+
+        # Create torus using CadQuery's Solid.makeTorus method
+        cq_solid = cq.Solid.makeTorus(radius1, radius2, center_vec, axis_vec)
+
+        solid = Solid(cq_solid)
+        
+        # Auto tag faces
+        solid.auto_tag_faces("torus")
+        solid.apply_tag("geom.primitive.torus", propagate=False)
+        solid.add_tag("torus")
+        solid.add_tag(f"center: {center}")
+        solid.add_tag(f"radius1: {radius1}")
+        solid.add_tag(f"radius2: {radius2}")
+        solid.set_metadata(
+            "geo",
+            {
+                "type": "torus",
+                "radius1": radius1,
+                "radius2": radius2,
+                "center": center,
+                "axis": axis,
+            },
+        )
+
+        _record_primitive_feature(
+            solid,
+            "torus",
+            FeatureType.PRIMITIVE,
+            {
+                "radius1": radius1,
+                "radius2": radius2,
+                "center": center,
+                "axis": axis,
+            },
+        )
+
+        return solid
+    except Exception as e:
+        raise ValueError(f"Failed to create torus: {e}. Please check that radius1 > radius2 > 0.")
 
 
 def make_three_point_arc_redge(
@@ -1187,6 +1296,17 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
 
+        # 记录变换特征
+        if isinstance(new_shape, Solid):
+            from .feature_history import FeatureType
+            new_shape = _record_transformed_feature(
+                shape=new_shape,
+                operation="translate_shape",
+                input_solids=[shape] if isinstance(shape, Solid) else [],
+                parameters={"vector": vector},
+                feature_type=FeatureType.TRANSFORM,
+            )
+
         return new_shape
     except Exception as e:
         raise ValueError(f"平移几何体失败: {e}. 请检查几何体和平移向量是否有效。")
@@ -1232,11 +1352,68 @@ def rotate_shape(
             new_shape._tags = shape._tags.copy()
             new_shape._metadata = shape._metadata.copy()
 
+            # 记录变换特征
+            if isinstance(new_shape, Solid):
+                from .feature_history import FeatureType
+                new_shape = _record_transformed_feature(
+                    shape=new_shape,
+                    operation="rotate_shape",
+                    input_solids=[shape] if isinstance(shape, Solid) else [],
+                    parameters={"angle": angle, "axis": axis, "origin": origin},
+                    feature_type=FeatureType.TRANSFORM,
+                )
+
             return new_shape
         except Exception as e:
             raise ValueError(
                 f"旋转几何体失败: {e}. 请检查几何体、角度、轴向和中心点是否有效。"
             )
+
+
+def scale_shape(
+    shape: AnyShape,
+    factor: float,
+) -> AnyShape:
+    """Scale a shape uniformly about the world origin."""
+    if factor <= 0:
+        raise ValueError("缩放因子必须大于0")
+
+    try:
+        if isinstance(shape, Vertex):
+            new_cq_shape = shape.cq_vertex.scale(factor)
+            new_shape = Vertex(new_cq_shape)
+        elif isinstance(shape, Edge):
+            new_cq_shape = shape.cq_edge.scale(factor)
+            new_shape = Edge(new_cq_shape)
+        elif isinstance(shape, Wire):
+            new_cq_shape = shape.cq_wire.scale(factor)
+            new_shape = Wire(new_cq_shape)
+        elif isinstance(shape, Face):
+            new_cq_shape = shape.cq_face.scale(factor)
+            new_shape = Face(new_cq_shape)
+        elif isinstance(shape, Solid):
+            new_cq_shape = shape.cq_solid.scale(factor)
+            new_shape = Solid(new_cq_shape)
+        else:
+            raise ValueError(f"不支持的几何体类型: {type(shape)}")  # type: ignore[unreachable]
+
+        new_shape._tags = shape._tags.copy()
+        new_shape._metadata = shape._metadata.copy()
+
+        if isinstance(new_shape, Solid):
+            from .feature_history import FeatureType
+
+            new_shape = _record_transformed_feature(
+                shape=new_shape,
+                operation="scale_shape",
+                input_solids=[shape] if isinstance(shape, Solid) else [],
+                parameters={"factor": factor, "center": (0, 0, 0)},
+                feature_type=FeatureType.TRANSFORM,
+            )
+
+        return new_shape
+    except Exception as e:
+        raise ValueError(f"缩放几何体失败: {e}. 请检查几何体和缩放因子是否有效。")
 
 
 # =============================================================================
@@ -1389,6 +1566,257 @@ def _record_extrude_feature(
 
     # Associate solid with feature
     solid.set_feature(feature)
+
+
+def _record_boolean_feature(
+    result_solids: List[Solid],
+    operation: str,
+    input_solids: List[Solid],
+    parameters: Optional[Dict[str, Any]] = None,
+) -> List[Solid]:
+    """Record boolean operation in feature history.
+    
+    Args:
+        result_solids: Resulting solids from boolean operation
+        operation: Boolean operation type ('boolean_union', 'boolean_cut', 'boolean_intersect')
+        input_solids: Input solids involved in the operation
+        parameters: Additional parameters for the operation
+        
+    Returns:
+        The result solids with features recorded
+    """
+    from .feature_history import get_global_history, Feature, FeatureType, Parameter
+    
+    history = get_global_history()
+    if history is None:
+        return result_solids
+    
+    parent_ids = []
+    input_ids = []
+    for solid in input_solids:
+        if hasattr(solid, '_feature') and solid._feature is not None:
+            feature_id = solid._feature.feature_id
+            parent_ids.append(feature_id)
+            input_ids.append(feature_id)
+    
+    for solid in result_solids:
+        # Build parameters dict with Parameter objects
+        params = {}
+        if parameters:
+            for param_name, value in parameters.items():
+                if isinstance(value, Parameter):
+                    params[param_name] = value
+                else:
+                    params[param_name] = Parameter(param_name, value)
+
+        # Map operation to correct FeatureType
+        feature_type_map = {
+            "boolean_union": FeatureType.BOOLEAN_UNION,
+            "boolean_cut": FeatureType.BOOLEAN_CUT,
+            "boolean_intersect": FeatureType.BOOLEAN_INTERSECT,
+        }
+        ft_type = feature_type_map.get(operation, FeatureType.BOOLEAN_UNION)
+
+        # Map operation to correct FeatureType
+        feature_type_map = {
+            "boolean_union": FeatureType.BOOLEAN_UNION,
+            "boolean_cut": FeatureType.BOOLEAN_CUT,
+            "boolean_intersect": FeatureType.BOOLEAN_INTERSECT,
+        }
+        ft_type = feature_type_map.get(operation, FeatureType.BOOLEAN_UNION)
+
+        # Create feature through history.add_feature with proper parameters
+        feature = history.add_feature(
+            name=f"Boolean_{operation}",
+            operation=operation,
+            feature_type=ft_type,
+            inputs=input_solids,
+            input_ids=input_ids,
+            parameters=params,
+            output=solid,
+            parent_ids=parent_ids if parent_ids else None,
+        )
+        solid._feature = feature
+
+    return result_solids
+
+
+def _record_transformed_feature(
+    shape: Solid,
+    operation: str,
+    input_solids: List[Solid],
+    parameters: Dict[str, Any],
+    feature_type: Any,
+) -> Solid:
+    """Record transformed feature in feature history.
+    
+    Args:
+        shape: The transformed solid
+        operation: Operation type ('translate_shape', 'rotate_shape', etc.)
+        input_solids: Input solids
+        parameters: Operation parameters
+        feature_type: FeatureType enum value
+        
+    Returns:
+        The solid with feature recorded
+    """
+    from .feature_history import get_global_history, Feature, Parameter
+    
+    history = get_global_history()
+    if history is None:
+        return shape
+    
+    parent_ids = []
+    input_ids = []
+    for solid in input_solids:
+        if hasattr(solid, '_feature') and solid._feature is not None:
+            feature_id = solid._feature.feature_id
+            parent_ids.append(feature_id)
+            input_ids.append(feature_id)
+    
+    # Build parameters dict with Parameter objects
+    params = {}
+    for param_name, value in parameters.items():
+        if isinstance(value, Parameter):
+            params[param_name] = value
+        else:
+            params[param_name] = Parameter(param_name, value)
+
+    # Create feature through history.add_feature with proper parameters
+    feature = history.add_feature(
+        name=f"Transformed_{operation}",
+        operation=operation,
+        feature_type=feature_type,
+        inputs=input_solids,
+        input_ids=input_ids,
+        parameters=params,
+        output=shape,
+        parent_ids=parent_ids if parent_ids else None,
+    )
+    shape._feature = feature
+
+    return shape
+
+
+def _find_edge_indices(base_solid: Solid, selected_edges: List[Edge]) -> List[int]:
+    """Map selected edge objects back to edge indices on the base solid."""
+    base_edges = base_solid.get_edges()
+    indices: List[int] = []
+    for selected_edge in selected_edges:
+        for index, base_edge in enumerate(base_edges):
+            if base_edge.cq_edge.wrapped.IsSame(selected_edge.cq_edge.wrapped):
+                indices.append(index)
+                break
+    return indices
+
+
+def _find_face_indices(base_solid: Solid, selected_faces: List[Face]) -> List[int]:
+    """Map selected face objects back to face indices on the base solid."""
+    base_faces = base_solid.get_faces()
+    indices: List[int] = []
+    for selected_face in selected_faces:
+        for index, base_face in enumerate(base_faces):
+            if base_face.cq_face.wrapped.IsSame(selected_face.cq_face.wrapped):
+                indices.append(index)
+                break
+    return indices
+
+
+def _record_modifier_feature(
+    result_solid: Solid,
+    operation: str,
+    base_solid: Solid,
+    parameters: Dict[str, Any],
+    feature_type: Any,
+) -> Solid:
+    """Record a single-input solid modifier feature such as fillet/chamfer/shell."""
+    from .feature_history import get_global_history, Parameter
+
+    history = get_global_history()
+    if history is None:
+        return result_solid
+
+    parent_ids = []
+    input_ids = []
+    if hasattr(base_solid, '_feature') and base_solid._feature is not None:
+        feature_id = base_solid._feature.feature_id
+        parent_ids.append(feature_id)
+        input_ids.append(feature_id)
+
+    params = {}
+    for param_name, value in parameters.items():
+        if isinstance(value, Parameter):
+            params[param_name] = value
+        else:
+            params[param_name] = Parameter(param_name, value)
+
+    feature = history.add_feature(
+        name=f"{operation.capitalize()}_{getattr(base_solid._feature, 'name', 'Solid')}",
+        operation=operation,
+        feature_type=feature_type,
+        inputs=[base_solid],
+        input_ids=input_ids,
+        parameters=params,
+        output=result_solid,
+        parent_ids=parent_ids if parent_ids else None,
+    )
+    result_solid.set_feature(feature)
+    return result_solid
+
+
+def _record_generic_feature(
+    output_shape: Any,
+    name: str,
+    operation: str,
+    feature_type: Any,
+    inputs: List[Any],
+    parameters: Dict[str, Any],
+    description: str = "",
+):
+    """Record a general feature with arbitrary inputs and output."""
+    from .feature_history import get_global_history, create_new_history, Parameter
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Model")
+
+    parent_ids: List[str] = []
+    input_ids: List[str] = []
+    for item in inputs:
+        feature = getattr(item, "_feature", None)
+        feature_id = getattr(feature, "feature_id", None) or getattr(
+            item, "_feature_id", None
+        )
+        if feature_id and feature_id not in input_ids:
+            input_ids.append(feature_id)
+            parent_ids.append(feature_id)
+
+    params = {}
+    for param_name, value in parameters.items():
+        if isinstance(value, Parameter):
+            params[param_name] = value
+        else:
+            params[param_name] = Parameter(param_name, value)
+
+    feature = history.add_feature(
+        name=name,
+        operation=operation,
+        feature_type=feature_type,
+        inputs=inputs,
+        input_ids=input_ids,
+        parameters=params,
+        output=output_shape,
+        description=description,
+        parent_ids=parent_ids if parent_ids else None,
+    )
+
+    if hasattr(output_shape, "set_feature"):
+        output_shape.set_feature(feature)
+    else:
+        setattr(output_shape, "_feature", feature)
+        setattr(output_shape, "_feature_id", feature.feature_id)
+
+    return output_shape
 
 
 def _record_profile_feature(
@@ -1785,6 +2213,13 @@ def union_rsolidlist(
 
         _warn_if_union_results_remain_separated(result, effective_tol)
 
+        # 记录布尔并集特征
+        result = _record_boolean_feature(
+            result_solids=result,
+            operation="boolean_union",
+            input_solids=remaining,
+        )
+
         return result
     except Exception as e:
         raise ValueError(f"并集运算失败: {e}. 请检查实体列表是否有效。")
@@ -1899,7 +2334,14 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
         result_solid._metadata = remaining[0]._metadata.copy()
         result_solid.add_tag("cut_result")
 
-        return [result_solid]
+        # 记录布尔差集特征
+        result = _record_boolean_feature(
+            result_solids=[result_solid],
+            operation="boolean_cut",
+            input_solids=remaining,
+        )
+
+        return result
     except Exception as e:
         raise ValueError(f"差集运算失败: {e}. 请检查实体列表是否有效。")
 
@@ -2012,7 +2454,12 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> List[Solid]:
         result_solid._metadata = all_metadata
         result_solid.add_tag("intersect_result")
 
-        return [result_solid]
+        result = _record_boolean_feature(
+            result_solids=[result_solid],
+            operation="boolean_intersect",
+            input_solids=remaining,
+        )
+        return result
     except Exception as e:
         raise ValueError(f"交集运算失败: {e}. 请检查实体列表是否有效。")
 
@@ -2668,6 +3115,16 @@ def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
         # 复制标签和元数据
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
+        result = _record_modifier_feature(
+            result_solid=result,
+            operation="fillet",
+            base_solid=solid,
+            parameters={
+                "radius": radius,
+                "edge_indices": _find_edge_indices(solid, edges),
+            },
+            feature_type=FeatureType.FILLET,
+        )
 
         return result
     except Exception as e:
@@ -2690,6 +3147,16 @@ def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
         # 复制标签和元数据
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
+        result = _record_modifier_feature(
+            result_solid=result,
+            operation="chamfer",
+            base_solid=solid,
+            parameters={
+                "distance": distance,
+                "edge_indices": _find_edge_indices(solid, edges),
+            },
+            feature_type=FeatureType.CHAMFER,
+        )
 
         return result
     except Exception as e:
@@ -2714,6 +3181,16 @@ def shell_rsolid(solid: Solid, faces_to_remove: List[Face], thickness: float) ->
         # 复制标签和元数据
         result._tags = solid._tags.copy()
         result._metadata = solid._metadata.copy()
+        result = _record_modifier_feature(
+            result_solid=result,
+            operation="shell",
+            base_solid=solid,
+            parameters={
+                "thickness": thickness,
+                "face_indices": _find_face_indices(solid, faces_to_remove),
+            },
+            feature_type=FeatureType.SHELL,
+        )
 
         return result
     except Exception as e:
@@ -2742,6 +3219,15 @@ def loft_rsolid(profiles: List[Wire], ruled: bool = False) -> Solid:
 
         result._tags = all_tags
         result._metadata = all_metadata
+        result = _record_generic_feature(
+            output_shape=result,
+            name="Loft_Profile_Stack",
+            operation="loft",
+            feature_type=FeatureType.LOFT,
+            inputs=profiles,
+            parameters={"ruled": ruled, "profile_count": len(profiles)},
+            description=f"Lofted {len(profiles)} profiles",
+        )
 
         return result
     except Exception as e:
@@ -2762,6 +3248,15 @@ def sweep_rsolid(profile: Face, path: Wire, is_frenet: bool = False) -> Solid:
         # 合并轮廓和路径的标签和元数据
         result._tags = profile._tags.union(path._tags)
         result._metadata = {**profile._metadata, **path._metadata}
+        result = _record_generic_feature(
+            output_shape=result,
+            name="Sweep_Profile_Along_Path",
+            operation="sweep",
+            feature_type=FeatureType.SWEEP,
+            inputs=[profile, path],
+            parameters={"is_frenet": is_frenet},
+            description="Swept profile along path",
+        )
 
         return result
     except Exception as e:
@@ -2782,11 +3277,34 @@ def linear_pattern_rsolidlist(
         global_direction = cs.transform_point(np.array(direction)) - cs.origin
         direction_vec = Vector(*global_direction).normalized()
 
-        shapes = []
+        if not isinstance(shape, Solid):
+            raise ValueError(
+                "linear_pattern_rsolidlist currently only supports Solid inputs"
+            )
+
+        shapes: List[Solid] = []
         for i in range(count):
             offset = direction_vec * (spacing * i)
-            translated_shape = translate_shape(shape, (offset.x, offset.y, offset.z))
-            shapes.append(translated_shape)
+            cq_shape = shape.cq_solid.copy().translate(offset)
+            patterned_shape = Solid(cq_shape)
+            patterned_shape._tags = shape._tags.copy()
+            patterned_shape._metadata = shape._metadata.copy()
+            patterned_shape = _record_generic_feature(
+                output_shape=patterned_shape,
+                name=f"LinearPattern_{i + 1}",
+                operation="linear_pattern",
+                feature_type=FeatureType.PATTERN,
+                inputs=[shape],
+                parameters={
+                    "direction": direction,
+                    "count": count,
+                    "spacing": spacing,
+                    "instance_index": i,
+                    "offset": (offset.x, offset.y, offset.z),
+                },
+                description=f"Linear pattern instance {i + 1} of {count}",
+            )
+            shapes.append(patterned_shape)
 
         rv = []
         for i, s in enumerate(shapes):
@@ -2813,13 +3331,43 @@ def radial_pattern_rsolidlist(
         if total_rotation_angle <= 0:
             raise ValueError("角度必须大于0")
 
-        shapes = []
-        angle_step = total_rotation_angle / count  # 修正角度计算，均匀分布
+        if not isinstance(shape, Solid):
+            raise ValueError(
+                "radial_pattern_rsolidlist currently only supports Solid inputs"
+            )
+
+        cs = get_current_cs()
+        global_center = cs.transform_point(np.array(center))
+        global_axis = cs.transform_point(np.array(axis)) - cs.origin
+        center_vec = Vector(*global_center)
+        axis_vec = Vector(*global_axis).normalized()
+
+        shapes: List[Solid] = []
+        angle_step = total_rotation_angle / count
 
         for i in range(count):
             rotation_angle = angle_step * i
-            rotated_shape = rotate_shape(shape, rotation_angle, axis, center)
-            shapes.append(rotated_shape)
+            cq_shape = shape.cq_solid.copy().rotate(center_vec, axis_vec, rotation_angle)
+            patterned_shape = Solid(cq_shape)
+            patterned_shape._tags = shape._tags.copy()
+            patterned_shape._metadata = shape._metadata.copy()
+            patterned_shape = _record_generic_feature(
+                output_shape=patterned_shape,
+                name=f"RadialPattern_{i + 1}",
+                operation="radial_pattern",
+                feature_type=FeatureType.PATTERN,
+                inputs=[shape],
+                parameters={
+                    "center": center,
+                    "axis": axis,
+                    "count": count,
+                    "total_rotation_angle": total_rotation_angle,
+                    "instance_index": i,
+                    "angle": rotation_angle,
+                },
+                description=f"Radial pattern instance {i + 1} of {count}",
+            )
+            shapes.append(patterned_shape)
 
         rv = []
         for i, s in enumerate(shapes):
@@ -2868,6 +3416,20 @@ def mirror_shape(
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
         new_shape.add_tag("mirrored")
+
+        if isinstance(new_shape, Solid):
+            from .feature_history import FeatureType
+
+            new_shape = _record_transformed_feature(
+                shape=new_shape,
+                operation="mirror_shape",
+                input_solids=[shape] if isinstance(shape, Solid) else [],
+                parameters={
+                    "plane_origin": plane_origin,
+                    "plane_normal": plane_normal,
+                },
+                feature_type=FeatureType.TRANSFORM,
+            )
 
         return new_shape
     except Exception as e:
@@ -2995,6 +3557,21 @@ def helical_sweep_rsolid(
         result._tags = profile._tags.copy()
         result._metadata = profile._metadata.copy()
         result.add_tag("helical_sweep")
+        result = _record_generic_feature(
+            output_shape=result,
+            name="HelicalSweep_Profile",
+            operation="helical_sweep",
+            feature_type=FeatureType.SWEEP,
+            inputs=[profile],
+            parameters={
+                "pitch": pitch,
+                "height": height,
+                "radius": radius,
+                "center": center,
+                "dir": dir,
+            },
+            description="Swept profile along a helix",
+        )
 
         return result
     except Exception as e:

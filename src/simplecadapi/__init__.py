@@ -39,6 +39,7 @@ from .operations import (
     make_segment_rwire,
     make_sphere_rsolid,
     make_spline_redge,
+    make_torus_rsolid,
     make_spline_rwire,
     make_three_point_arc_redge,
     make_three_point_arc_rwire,
@@ -47,6 +48,7 @@ from .operations import (
     # 变换操作
     mirror_shape,
     rotate_shape,
+    scale_shape,
     translate_shape,
 
     # 3D操作
@@ -150,6 +152,7 @@ create_wire_from_edges = make_wire_from_edges_rwire
 
 # 变换操作别名
 rotate = rotate_shape
+scale = scale_shape
 translate = translate_shape
 
 # 3D操作别名
@@ -207,11 +210,13 @@ __all__ = [
     "make_spline_rwire",
     "make_three_point_arc_redge",
     "make_three_point_arc_rwire",
+    "make_torus_rsolid",
     "make_wire_from_edges_rwire",
 
     # 变换操作
     "mirror_shape",
     "rotate_shape",
+    "scale_shape",
     "translate_shape",
 
     # 3D操作

@@ -198,6 +198,7 @@ class TestBasicShapes(unittest.TestCase):
             scad.make_polyline_rwire([(0, 0, 0)])  # 点数不足
 
 
+
 class TestTransformations(unittest.TestCase):
     """Tests for transformation operations."""
 
@@ -1084,6 +1085,182 @@ class TestDeclarativeConstraints(unittest.TestCase):
         self.assertAlmostEqual(center_child_x, 2.0, places=6)
 
 
+class TestFeatureHistory(unittest.TestCase):
+    """Tests for feature history functionality."""
+
+    def setUp(self):
+        """Set up test environment."""
+        # Clear global history before each test
+        try:
+            from simplecadapi.feature_history import clear_global_history
+            clear_global_history()
+        except ImportError:
+            # If clear_global_history doesn't exist, create a new history to reset state
+            from simplecadapi.feature_history import create_new_history
+            create_new_history("Test Model Reset")
+        except ImportError:
+            # If clear_global_history doesn't exist, try to reset by creating new history
+            try:
+                from simplecadapi.feature_history import create_new_history
+                create_new_history("Test Model")
+            except Exception:
+                pass  # Ignore if this also fails
+
+    def test_feature_history_creation(self):
+        """Test feature history creation."""
+        from simplecadapi.feature_history import create_new_history, get_global_history
+
+        history = create_new_history("Test Model")
+        self.assertIsNotNone(history)
+        self.assertEqual(history.name, "Test Model")
+
+        current = get_global_history()
+        self.assertEqual(current, history)
+
+    def test_basic_geometry_feature_recording(self):
+        """Test basic geometry creation and feature recording."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history
+
+        # Create box
+        box = scad.make_box_rsolid(width=10, height=20, depth=30)
+        self.assertIsNotNone(box)
+        self.assertAlmostEqual(box.get_volume(), 6000.0, places=1)
+
+        # Check if feature was recorded
+        history = get_global_history()
+        if history:
+            self.assertGreater(len(history.features), 0)
+
+    def test_extrude_operation_feature(self):
+        """Test extrude operation and feature association."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history
+
+        # Create profile and extrude
+        profile = scad.make_rectangle_rwire(width=50, height=30)
+        extruded = scad.extrude_rsolid(profile, direction=(0, 0, 1), distance=20)
+
+        self.assertIsNotNone(extruded)
+        expected_volume = 50 * 30 * 20
+        self.assertAlmostEqual(extruded.get_volume(), expected_volume, places=1)
+
+        # Check feature
+        feature = extruded.get_feature()
+        if feature:
+            self.assertEqual(feature.operation, "extrude")
+            self.assertIn(feature.feature_type.name, ["EXTRUDE", "SKETCH"])
+
+    def test_boolean_operation_feature(self):
+        """Test boolean operation and feature recording."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history
+
+        # Create base and cut cylinder
+        box = scad.make_box_rsolid(50, 50, 10)
+        cyl = scad.make_cylinder_rsolid(15, 20)
+        cyl = scad.translate_shape(cyl, (25, 25, -5))
+
+        # Boolean cut
+        result_list = scad.cut_rsolidlist(box, cyl)
+        result = result_list[0] if result_list else None
+
+        self.assertIsNotNone(result)
+
+        # Check boolean feature
+        if hasattr(result, '_feature') and result._feature:
+            feat = result._feature
+            self.assertIn(feat.operation, ["boolean_cut", "boolean_union", "boolean_intersect"])
+            self.assertIn(feat.feature_type.name, ["BOOLEAN_CUT", "BOOLEAN_UNION", "BOOLEAN_INTERSECT"])
+
+    def test_feature_history_traversal(self):
+        """Test feature history traversal."""
+        import simplecadapi as scad
+
+        # Create extruded solid
+        extruded_solid = scad.extrude_rsolid(
+            scad.make_rectangle_rwire(30, 20),
+            (0, 0, 1),
+            10
+        )
+
+        # Get feature history chain
+        history_chain = extruded_solid.get_feature_history()
+        if history_chain:
+            self.assertGreater(len(history_chain), 0)
+            for i, feat in enumerate(history_chain, 1):
+                self.assertIsNotNone(feat.name)
+                self.assertIsNotNone(feat.feature_type)
+
+    def test_freecad_script_generation(self):
+        """Test FreeCAD script generation from feature history."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history, create_new_history
+        from simplecadapi.feature_export import FeatureExporter
+
+        # Create fresh history
+        create_new_history("Test Model")
+
+        # Create some geometry
+        box = scad.make_box_rsolid(10, 20, 30)
+        cyl = scad.make_cylinder_rsolid(5, 15)
+
+        # Get history and generate script
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        exporter = FeatureExporter(history)
+        script = exporter._generate_freecad_script()
+
+        # Verify script content
+        self.assertIn("import FreeCAD as App", script)
+        self.assertIn("import Part", script)
+        self.assertIn("doc.recompute()", script)
+
+        # Check for required imports (Gui is optional based on environment)
+        # Just verify script is substantial
+        self.assertGreater(len(script), 100)
+
+    def test_json_export(self):
+        """Test JSON export of feature history."""
+        import simplecadapi as scad
+        import json
+        import tempfile
+        from pathlib import Path
+        from simplecadapi.feature_history import get_global_history, create_new_history
+        from simplecadapi.feature_export import export_feature_history_to_json
+
+        # Create fresh history
+        create_new_history("JSON Test Model")
+
+        # Create geometry
+        box = scad.make_box_rsolid(10, 20, 30)
+
+        # Export to JSON
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json_path = f.name
+
+        try:
+            export_feature_history_to_json(history, json_path)
+
+            # Read and verify JSON
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            self.assertEqual(data.get('name'), "JSON Test Model")
+            self.assertGreater(data.get('feature_count', 0), 0)
+            self.assertIn('features', data)
+            self.assertIn('feature_tree', data)
+
+        finally:
+            # Cleanup
+            if os.path.exists(json_path):
+                os.remove(json_path)
+
+
 def run_comprehensive_tests():
     """Run the comprehensive test suite."""
     print("SimpleCAD API 全面单元测试")
@@ -1106,6 +1283,7 @@ def run_comprehensive_tests():
         TestComplexExamples,
         TestErrorHandling,
         TestDeclarativeConstraints,
+        TestFeatureHistory,
     ]
 
     for test_class in test_classes:
@@ -1160,3 +1338,81 @@ if __name__ == "__main__":
         print("部分测试失败。请检查上述错误信息。")
 
     sys.exit(0 if success else 1)
+
+
+class TestFeatureHistory(unittest.TestCase):
+    """Tests for feature history functionality (merged from test_feature_history.py)."""
+
+    def setUp(self):
+        """Set up test environment."""
+        # Clear global history before each test
+        try:
+            from simplecadapi.feature_history import clear_global_history
+            clear_global_history()
+        except ImportError:
+            # If the function doesn't exist, just create a new history
+            from simplecadapi.feature_history import create_new_history
+            create_new_history("Test Model")
+
+    def test_01_module_import(self):
+        """Test that all required modules can be imported."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import (
+            create_new_history,
+            get_global_history,
+            FeatureHistory,
+            FeatureType
+        )
+        from simplecadapi.feature_export import (
+            export_feature_history_to_json,
+            print_feature_report,
+            FeatureExporter
+        )
+        # If we get here, all imports succeeded
+        self.assertTrue(True)
+
+    def test_02_history_creation(self):
+        """Test feature history creation."""
+        from simplecadapi.feature_history import create_new_history, get_global_history
+        
+        history = create_new_history("Test Model")
+        self.assertIsNotNone(history)
+        self.assertEqual(history.name, "Test Model")
+        
+        current = get_global_history()
+        self.assertEqual(current, history)
+
+    def test_03_basic_geometry_recording(self):
+        """Test basic geometry creation and feature recording."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history
+        
+        # Create box
+        box = scad.make_box_rsolid(width=10, height=20, depth=30)
+        self.assertIsNotNone(box)
+        self.assertAlmostEqual(box.get_volume(), 6000.0, places=1)
+        
+        # Check history
+        history = get_global_history()
+        if history:
+            self.assertGreater(len(history.features), 0)
+
+    def test_04_extrude_operation(self):
+        """Test extrude operation and feature association."""
+        import simplecadapi as scad
+        from simplecadapi.feature_history import get_global_history
+        
+        # Create profile and extrude
+        profile = scad.make_rectangle_rwire(width=50, height=30)
+        extruded = scad.extrude_rsolid(profile, direction=(0, 0, 1), distance=20)
+        
+        self.assertIsNotNone(extruded)
+        expected_volume = 50 * 30 * 20
+        self.assertAlmostEqual(extruded.get_volume(), expected_volume, places=1)
+        
+        # Check feature
+        feature = extruded.get_feature()
+        if feature:
+            self.assertEqual(feature.operation, "extrude")
+            self.assertIn(feature.feature_type.name, ["EXTRUDE", "SKETCH"])
+

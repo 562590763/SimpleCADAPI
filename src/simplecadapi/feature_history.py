@@ -139,9 +139,34 @@ class Feature:
         if child_id not in self.child_features:
             self.child_features.append(child_id)
     
-    def to_dict(self) -> Dict[str, Any]:
+    def _serialize_output(self) -> Optional[Dict[str, Any]]:
+        """Serialize lightweight output geometry metadata when requested."""
+        if self.output is None:
+            return None
+
+        output_data: Dict[str, Any] = {
+            "type": type(self.output).__name__,
+        }
+
+        tags = getattr(self.output, "_tags", None)
+        if tags:
+            output_data["tags"] = sorted(tags)
+
+        metadata = getattr(self.output, "_metadata", None)
+        if metadata:
+            output_data["metadata"] = metadata
+
+        try:
+            if hasattr(self.output, "get_volume"):
+                output_data["volume"] = self.output.get_volume()
+        except Exception:
+            pass
+
+        return output_data
+
+    def to_dict(self, include_geometry: bool = False) -> Dict[str, Any]:
         """Convert feature to dictionary for serialization."""
-        return {
+        data = {
             "name": self.name,
             "operation": self.operation,
             "feature_type": self.feature_type.name,
@@ -156,6 +181,11 @@ class Feature:
             "parent_features": self.parent_features,
             "child_features": self.child_features,
         }
+
+        if include_geometry:
+            data["output"] = self._serialize_output()
+
+        return data
     
     def _serialize_inputs(self) -> List[str]:
         """Serialize input references."""
@@ -356,7 +386,7 @@ class FeatureHistory:
             "feature_count": len(self.features),
         }
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, include_geometry: bool = False) -> Dict[str, Any]:
         """Convert the entire history to a dictionary."""
         return {
             "name": self.name,
@@ -365,15 +395,19 @@ class FeatureHistory:
             "modified_at": self.modified_at,
             "feature_count": len(self.features),
             "features": [
-                self.features[feat_id].to_dict()
+                self.features[feat_id].to_dict(include_geometry=include_geometry)
                 for feat_id in self.ordered_features
             ],
             "feature_tree": self.get_feature_tree(),
         }
-    
-    def to_json(self, indent: int = 2) -> str:
+
+    def to_json(self, indent: int = 2, include_geometry: bool = False) -> str:
         """Serialize the history to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, default=str)
+        return json.dumps(
+            self.to_dict(include_geometry=include_geometry),
+            indent=indent,
+            default=str,
+        )
     
     def save_to_file(self, filepath: str, indent: int = 2) -> None:
         """Save the history to a JSON file."""
