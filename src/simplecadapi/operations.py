@@ -117,7 +117,9 @@ def make_point_rvertex(x: float, y: float, z: float) -> Vertex:
         cs = get_current_cs()
         global_point = cs.transform_point(np.array([x, y, z]))
         cq_vertex = cq.Vertex.makeVertex(*global_point)
-        return Vertex(cq_vertex)
+        vertex = Vertex(cq_vertex)
+        _record_profile_feature(vertex, "point", {"x": x, "y": y, "z": z})
+        return vertex
     except Exception as e:
         raise ValueError(f"创建点失败: {e}. 请检查坐标值是否有效。")
 
@@ -145,8 +147,21 @@ def make_line_redge(
 def make_segment_redge(
     start: Tuple[float, float, float], end: Tuple[float, float, float]
 ) -> Edge:
-    """Alias of `make_line_redge` that returns a straight edge."""
-    return make_line_redge(start, end)
+    """Create a straight segment edge."""
+    try:
+        cs = get_current_cs()
+        start_global = cs.transform_point(np.array(start))
+        end_global = cs.transform_point(np.array(end))
+
+        start_vec = Vector(*start_global)
+        end_vec = Vector(*end_global)
+
+        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
+        edge = Edge(cq_edge)
+        _record_profile_feature(edge, "segment", {"start": start, "end": end})
+        return edge
+    except Exception as e:
+        raise ValueError(f"创建线段边失败: {e}. 请检查起点和终点坐标是否有效。")
 
 
 def make_segment_rwire(
@@ -154,16 +169,20 @@ def make_segment_rwire(
 ) -> Wire:
     """Create a wire containing a single straight segment."""
     try:
-        edge = make_line_redge(start, end)
-        cq_wire = cq.Wire.assembleEdges([edge.cq_edge])
+        cs = get_current_cs()
+        start_global = cs.transform_point(np.array(start))
+        end_global = cs.transform_point(np.array(end))
+
+        start_vec = Vector(*start_global)
+        end_vec = Vector(*end_global)
+
+        cq_edge = cq.Edge.makeLine(start_vec, end_vec)
+        cq_wire = cq.Wire.assembleEdges([cq_edge])
         wire = Wire(cq_wire)
-        if hasattr(edge, "_feature") and edge._feature is not None:
-            wire.set_feature(edge._feature)
-        else:
-            _record_profile_feature(wire, "line", {"start": start, "end": end})
+        _record_profile_feature(wire, "segment", {"start": start, "end": end})
         return wire
     except Exception as e:
-        raise ValueError(f"创建线段线失败: {e}")
+        raise ValueError(f"创建线段线框失败: {e}")
 
 
 def make_circle_redge(
@@ -229,13 +248,25 @@ def make_circle_rface(
 ) -> Face:
     """Create a circular face."""
     try:
-        wire = make_circle_rwire(center, radius, normal)
-        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        if radius <= 0:
+            raise ValueError("半径必须大于0")
+
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+
+        center_vec = Vector(*center_global)
+        normal_vec = Vector(*normal_global)
+
+        cq_edge = cq.Edge.makeCircle(radius, center_vec, normal_vec)
+        cq_wire = cq.Wire.assembleEdges([cq_edge])
+        cq_face = cq.Face.makeFromWires(cq_wire)
         face = Face(cq_face)
-        face._tags = wire._tags.copy()
-        face._metadata = wire._metadata.copy()
-        if hasattr(wire, "_feature") and wire._feature is not None:
-            face.set_feature(wire._feature)
+        _record_profile_feature(
+            face,
+            "circle",
+            {"center": center, "radius": radius, "normal": normal},
+        )
         return face
     except Exception as e:
         raise ValueError(f"创建圆面失败: {e}")
@@ -320,16 +351,53 @@ def make_rectangle_rface(
 ) -> Face:
     """Create a rectangular face."""
     try:
-        wire = make_rectangle_rwire(width, height, center, normal)
-        cq_face = cq.Face.makeFromWires(wire.cq_wire)
+        if width <= 0 or height <= 0:
+            raise ValueError("宽度和高度必须大于0")
+
+        cs = get_current_cs()
+        center_global = cs.transform_point(np.array(center))
+        normal_global = cs.transform_point(np.array(normal)) - cs.origin
+
+        normal_vec = normal_global / np.linalg.norm(normal_global)
+        if abs(normal_vec[2]) > 0.9:
+            ref_vec = np.array([1.0, 0.0, 0.0])
+        else:
+            ref_vec = np.array([0.0, 0.0, 1.0])
+
+        local_x = np.cross(normal_vec, ref_vec)
+        local_x = local_x / np.linalg.norm(local_x)
+        local_y = np.cross(normal_vec, local_x)
+        local_y = local_y / np.linalg.norm(local_y)
+
+        half_w, half_h = width / 2, height / 2
+        local_points = [
+            (-half_w, -half_h),
+            (half_w, -half_h),
+            (half_w, half_h),
+            (-half_w, half_h),
+        ]
+
+        global_points = []
+        for local_point in local_points:
+            point_3d = (
+                center_global + local_point[0] * local_x + local_point[1] * local_y
+            )
+            global_points.append(Vector(*point_3d))
+
+        edges = []
+        for i in range(len(global_points)):
+            start = global_points[i]
+            end = global_points[(i + 1) % len(global_points)]
+            edges.append(cq.Edge.makeLine(start, end))
+
+        cq_wire = cq.Wire.assembleEdges(edges)
+        cq_face = cq.Face.makeFromWires(cq_wire)
         face = Face(cq_face)
-        
-        # Copy tags and metadata from wire
-        face._tags = wire._tags.copy()
-        face._metadata = wire._metadata.copy()
-        if hasattr(wire, "_feature") and wire._feature is not None:
-            face.set_feature(wire._feature)
-        
+        _record_profile_feature(
+            face,
+            "rectangle",
+            {"width": width, "height": height, "center": center, "normal": normal},
+        )
         return face
     except Exception as e:
         raise ValueError(f"创建矩形面失败: {e}")
@@ -379,18 +447,15 @@ def make_face_from_wire_rface(
         face._tags = wire._tags.copy()
         face._metadata = wire._metadata.copy()
 
-        if hasattr(wire, "_feature") and wire._feature is not None:
-            face.set_feature(wire._feature)
-        else:
-            face = _record_generic_feature(
-                output_shape=face,
-                name="Face_Profile",
-                operation="make_face",
-                feature_type=FeatureType.SKETCH,
-                inputs=[wire],
-                parameters={"normal": normal},
-                description="Created face from wire",
-            )
+        face = _record_generic_feature(
+            output_shape=face,
+            name="Face_Profile",
+            operation="make_face",
+            feature_type=FeatureType.SKETCH,
+            inputs=[wire],
+            parameters={"normal": normal},
+            description="Created face from wire",
+        )
 
         return face
     except Exception as e:
@@ -642,6 +707,20 @@ def make_field_surface_rsolid(
             "cap_bounds": bool(cap_bounds),
         }
         solid.set_metadata("field_report", report)
+        solid = _record_generic_feature(
+            output_shape=solid,
+            name="Field_Surface",
+            operation="make_field_surface",
+            feature_type=FeatureType.FIELD,
+            inputs=[],
+            parameters={
+                "bounds": bounds,
+                "resolution": resolution,
+                "iso": iso,
+                "cap_bounds": cap_bounds,
+            },
+            description="Created solid from scalar field isosurface",
+        )
         return solid
     except Exception as e:
         raise ValueError(f"场函数等势面构建失败: {e}.")
@@ -1149,7 +1228,13 @@ def make_spline_redge(
         else:
             cq_edge = cq.Edge.makeSpline(global_points)
 
-        return Edge(cq_edge)
+        edge = Edge(cq_edge)
+        _record_profile_feature(
+            edge,
+            "spline",
+            {"points": points, "tangents": tangents, "closed": False},
+        )
+        return edge
     except Exception as e:
         raise ValueError(f"创建样条曲线失败: {e}. 请检查控制点和切线向量是否有效。")
 
@@ -1338,15 +1423,14 @@ def translate_shape(shape: AnyShape, vector: Tuple[float, float, float]) -> AnyS
         new_shape._metadata = shape._metadata.copy()
 
         # 记录变换特征
-        if isinstance(new_shape, Solid):
-            from .feature_history import FeatureType
-            new_shape = _record_transformed_feature(
-                shape=new_shape,
-                operation="translate_shape",
-                input_solids=[shape] if isinstance(shape, Solid) else [],
-                parameters={"vector": vector},
-                feature_type=FeatureType.TRANSFORM,
-            )
+        from .feature_history import FeatureType
+        new_shape = _record_transformed_feature(
+            shape=new_shape,
+            operation="translate_shape",
+            input_shapes=[shape],
+            parameters={"vector": vector},
+            feature_type=FeatureType.TRANSFORM,
+        )
 
         return new_shape
     except Exception as e:
@@ -1394,15 +1478,14 @@ def rotate_shape(
             new_shape._metadata = shape._metadata.copy()
 
             # 记录变换特征
-            if isinstance(new_shape, Solid):
-                from .feature_history import FeatureType
-                new_shape = _record_transformed_feature(
-                    shape=new_shape,
-                    operation="rotate_shape",
-                    input_solids=[shape] if isinstance(shape, Solid) else [],
-                    parameters={"angle": angle, "axis": axis, "origin": origin},
-                    feature_type=FeatureType.TRANSFORM,
-                )
+            from .feature_history import FeatureType
+            new_shape = _record_transformed_feature(
+                shape=new_shape,
+                operation="rotate_shape",
+                input_shapes=[shape],
+                parameters={"angle": angle, "axis": axis, "origin": origin},
+                feature_type=FeatureType.TRANSFORM,
+            )
 
             return new_shape
         except Exception as e:
@@ -1441,16 +1524,15 @@ def scale_shape(
         new_shape._tags = shape._tags.copy()
         new_shape._metadata = shape._metadata.copy()
 
-        if isinstance(new_shape, Solid):
-            from .feature_history import FeatureType
+        from .feature_history import FeatureType
 
-            new_shape = _record_transformed_feature(
-                shape=new_shape,
-                operation="scale_shape",
-                input_solids=[shape] if isinstance(shape, Solid) else [],
-                parameters={"factor": factor, "center": (0, 0, 0)},
-                feature_type=FeatureType.TRANSFORM,
-            )
+        new_shape = _record_transformed_feature(
+            shape=new_shape,
+            operation="scale_shape",
+            input_shapes=[shape],
+            parameters={"factor": factor, "center": (0, 0, 0)},
+            feature_type=FeatureType.TRANSFORM,
+        )
 
         return new_shape
     except Exception as e:
@@ -1683,35 +1765,38 @@ def _record_boolean_feature(
 
 
 def _record_transformed_feature(
-    shape: Solid,
+    shape: Any,
     operation: str,
-    input_solids: List[Solid],
+    input_shapes: List[Any],
     parameters: Dict[str, Any],
     feature_type: Any,
-) -> Solid:
+) -> Any:
     """Record transformed feature in feature history.
     
     Args:
-        shape: The transformed solid
+        shape: The transformed shape
         operation: Operation type ('translate_shape', 'rotate_shape', etc.)
-        input_solids: Input solids
+        input_shapes: Input shapes
         parameters: Operation parameters
         feature_type: FeatureType enum value
         
     Returns:
-        The solid with feature recorded
+        The shape with feature recorded
     """
-    from .feature_history import get_global_history, Feature, Parameter
+    from .feature_history import get_global_history, create_new_history, Parameter
     
     history = get_global_history()
     if history is None:
-        return shape
+        history = create_new_history("SimpleCAD Model")
     
     parent_ids = []
     input_ids = []
-    for solid in input_solids:
-        if hasattr(solid, '_feature') and solid._feature is not None:
-            feature_id = solid._feature.feature_id
+    for item in input_shapes:
+        feature = getattr(item, "_feature", None)
+        feature_id = getattr(feature, "feature_id", None) or getattr(
+            item, "_feature_id", None
+        )
+        if feature_id is not None:
             parent_ids.append(feature_id)
             input_ids.append(feature_id)
     
@@ -1728,13 +1813,17 @@ def _record_transformed_feature(
         name=f"Transformed_{operation}",
         operation=operation,
         feature_type=feature_type,
-        inputs=input_solids,
+        inputs=input_shapes,
         input_ids=input_ids,
         parameters=params,
         output=shape,
         parent_ids=parent_ids if parent_ids else None,
     )
-    shape._feature = feature
+    if hasattr(shape, "set_feature"):
+        shape.set_feature(feature)
+    else:
+        setattr(shape, "_feature", feature)
+        setattr(shape, "_feature_id", feature.feature_id)
 
     return shape
 
@@ -1887,8 +1976,10 @@ def _record_profile_feature(
     if history is None:
         history = create_new_history("SimpleCAD Model")
 
+    profile_kind = type(profile).__name__
+
     feature = history.add_feature(
-        name=f"{profile_type.capitalize()}_Profile",
+        name=f"{profile_type.capitalize()}_{profile_kind}_Profile",
         operation=f"make_{profile_type}",
         feature_type=FeatureType.SKETCH,
         inputs=[],
@@ -1904,10 +1995,8 @@ def _record_profile_feature(
         profile.set_feature(feature)
     else:
         # Fallback: set attributes directly for objects without set_feature
-        if hasattr(profile, '_feature'):
-            profile._feature = feature
-        if hasattr(profile, '_feature_id'):
-            profile._feature_id = feature.feature_id
+        setattr(profile, "_feature", feature)
+        setattr(profile, "_feature_id", feature.feature_id)
 
 
 def _record_revolve_feature(
@@ -3438,19 +3527,17 @@ def mirror_shape(
         cq_origin = Vector(global_origin[0], global_origin[1], global_origin[2])
         cq_normal = Vector(global_normal[0], global_normal[1], global_normal[2])
 
-        if isinstance(shape, Solid):
-            # 对于Solid，创建一个包含该Solid的Workplane
-            wp = cq.Workplane().add(shape.cq_solid)
-
-            # 执行镜像
-            mirrored_wp = wp.mirror(cq_normal, basePointVector=cq_origin.toTuple())
-
-            # 获取镜像后的Solid
-            mirrored_solid = mirrored_wp.val()
-            new_shape = Solid(mirrored_solid)
-
+        if isinstance(shape, Vertex):
+            new_shape = Vertex(shape.cq_vertex.mirror(cq_normal, cq_origin))
+        elif isinstance(shape, Edge):
+            new_shape = Edge(shape.cq_edge.mirror(cq_normal, cq_origin))
+        elif isinstance(shape, Wire):
+            new_shape = Wire(shape.cq_wire.mirror(cq_normal, cq_origin))
+        elif isinstance(shape, Face):
+            new_shape = Face(shape.cq_face.mirror(cq_normal, cq_origin))
+        elif isinstance(shape, Solid):
+            new_shape = Solid(shape.cq_solid.mirror(cq_normal, cq_origin))
         else:
-            # 对于其他类型的几何体，暂时不支持
             raise ValueError(f"暂不支持镜像 {type(shape).__name__} 类型的几何体")
 
         # 复制标签和元数据
@@ -3458,19 +3545,18 @@ def mirror_shape(
         new_shape._metadata = shape._metadata.copy()
         new_shape.add_tag("mirrored")
 
-        if isinstance(new_shape, Solid):
-            from .feature_history import FeatureType
+        from .feature_history import FeatureType
 
-            new_shape = _record_transformed_feature(
-                shape=new_shape,
-                operation="mirror_shape",
-                input_solids=[shape] if isinstance(shape, Solid) else [],
-                parameters={
-                    "plane_origin": plane_origin,
-                    "plane_normal": plane_normal,
-                },
-                feature_type=FeatureType.TRANSFORM,
-            )
+        new_shape = _record_transformed_feature(
+            shape=new_shape,
+            operation="mirror_shape",
+            input_shapes=[shape],
+            parameters={
+                "plane_origin": plane_origin,
+                "plane_normal": plane_normal,
+            },
+            feature_type=FeatureType.TRANSFORM,
+        )
 
         return new_shape
     except Exception as e:

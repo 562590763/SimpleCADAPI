@@ -1086,261 +1086,6 @@ class TestDeclarativeConstraints(unittest.TestCase):
 
 
 class TestFeatureHistory(unittest.TestCase):
-    """Tests for feature history functionality."""
-
-    def setUp(self):
-        """Set up test environment."""
-        # Clear global history before each test
-        try:
-            from simplecadapi import clear_global_history
-            clear_global_history()
-        except ImportError:
-            # If clear_global_history doesn't exist, create a new history to reset state
-            from simplecadapi import create_new_history
-            create_new_history("Test Model Reset")
-        except ImportError:
-            # If clear_global_history doesn't exist, try to reset by creating new history
-            try:
-                from simplecadapi import create_new_history
-                create_new_history("Test Model")
-            except Exception:
-                pass  # Ignore if this also fails
-
-    def test_feature_history_creation(self):
-        """Test feature history creation."""
-        from simplecadapi import create_new_history, get_global_history
-
-        history = create_new_history("Test Model")
-        self.assertIsNotNone(history)
-        self.assertEqual(history.name, "Test Model")
-
-        current = get_global_history()
-        self.assertEqual(current, history)
-
-    def test_basic_geometry_feature_recording(self):
-        """Test basic geometry creation and feature recording."""
-        import simplecadapi as scad
-        from simplecadapi import get_global_history
-
-        # Create box
-        box = scad.make_box_rsolid(width=10, height=20, depth=30)
-        self.assertIsNotNone(box)
-        self.assertAlmostEqual(box.get_volume(), 6000.0, places=1)
-
-        # Check if feature was recorded
-        history = get_global_history()
-        if history:
-            self.assertGreater(len(history.features), 0)
-
-    def test_extrude_operation_feature(self):
-        """Test extrude operation and feature association."""
-        import simplecadapi as scad
-        from simplecadapi import get_global_history
-
-        # Create profile and extrude
-        profile = scad.make_rectangle_rwire(width=50, height=30)
-        extruded = scad.extrude_rsolid(profile, direction=(0, 0, 1), distance=20)
-
-        self.assertIsNotNone(extruded)
-        expected_volume = 50 * 30 * 20
-        self.assertAlmostEqual(extruded.get_volume(), expected_volume, places=1)
-
-        # Check feature
-        feature = extruded.get_feature()
-        if feature:
-            self.assertEqual(feature.operation, "extrude")
-            self.assertIn(feature.feature_type.name, ["EXTRUDE", "SKETCH"])
-
-    def test_boolean_operation_feature(self):
-        """Test boolean operation and feature recording."""
-        import simplecadapi as scad
-        from simplecadapi import get_global_history
-
-        # Create base and cut cylinder
-        box = scad.make_box_rsolid(50, 50, 10)
-        cyl = scad.make_cylinder_rsolid(15, 20)
-        cyl = scad.translate_shape(cyl, (25, 25, -5))
-
-        # Boolean cut
-        result_list = scad.cut_rsolidlist(box, cyl)
-        result = result_list[0] if result_list else None
-
-        self.assertIsNotNone(result)
-
-        # Check boolean feature
-        if hasattr(result, '_feature') and result._feature:
-            feat = result._feature
-            self.assertIn(feat.operation, ["boolean_cut", "boolean_union", "boolean_intersect"])
-            self.assertIn(feat.feature_type.name, ["BOOLEAN_CUT", "BOOLEAN_UNION", "BOOLEAN_INTERSECT"])
-
-    def test_feature_history_traversal(self):
-        """Test feature history traversal."""
-        import simplecadapi as scad
-
-        # Create extruded solid
-        extruded_solid = scad.extrude_rsolid(
-            scad.make_rectangle_rwire(30, 20),
-            (0, 0, 1),
-            10
-        )
-
-        # Get feature history chain
-        history_chain = extruded_solid.get_feature_history()
-        if history_chain:
-            self.assertGreater(len(history_chain), 0)
-            for i, feat in enumerate(history_chain, 1):
-                self.assertIsNotNone(feat.name)
-                self.assertIsNotNone(feat.feature_type)
-
-    def test_freecad_script_generation(self):
-        """Test FreeCAD script generation from feature history."""
-        import simplecadapi as scad
-        from simplecadapi import get_global_history, create_new_history
-        from simplecadapi import FeatureExporter
-
-        # Create fresh history
-        create_new_history("Test Model")
-
-        # Create some geometry
-        box = scad.make_box_rsolid(10, 20, 30)
-        cyl = scad.make_cylinder_rsolid(5, 15)
-
-        # Get history and generate script
-        history = get_global_history()
-        self.assertIsNotNone(history)
-
-        exporter = FeatureExporter(history)
-        script = exporter._generate_freecad_script()
-
-        # Verify script content
-        self.assertIn("import FreeCAD as App", script)
-        self.assertIn("import Part", script)
-        self.assertIn("doc.recompute()", script)
-
-        # Check for required imports (Gui is optional based on environment)
-        # Just verify script is substantial
-        self.assertGreater(len(script), 100)
-
-    def test_json_export(self):
-        """Test JSON export of feature history."""
-        import simplecadapi as scad
-        import json
-        import tempfile
-        from pathlib import Path
-        from simplecadapi import get_global_history, create_new_history
-        from simplecadapi import export_feature_history_to_json
-
-        # Create fresh history
-        create_new_history("JSON Test Model")
-
-        # Create geometry
-        box = scad.make_box_rsolid(10, 20, 30)
-
-        # Export to JSON
-        history = get_global_history()
-        self.assertIsNotNone(history)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json_path = f.name
-
-        try:
-            export_feature_history_to_json(history, json_path)
-
-            # Read and verify JSON
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            self.assertEqual(data.get('name'), "JSON Test Model")
-            self.assertGreater(data.get('feature_count', 0), 0)
-            self.assertIn('features', data)
-            self.assertIn('feature_tree', data)
-
-        finally:
-            # Cleanup
-            if os.path.exists(json_path):
-                os.remove(json_path)
-
-
-def run_comprehensive_tests():
-    """Run the comprehensive test suite."""
-    print("SimpleCAD API 全面单元测试")
-    print("=" * 60)
-
-    # 创建测试套件
-    test_suite = unittest.TestSuite()
-
-    # 添加所有测试类
-    test_classes = [
-        TestBasicShapes,
-        TestNewFunctionIntegration,
-        TestTransformations,
-        Test3DOperations,
-        TestBooleanOperations,
-        TestAdvancedFeatures,
-        TestTagging,
-        TestCoordinateSystem,
-        TestExport,
-        TestComplexExamples,
-        TestErrorHandling,
-        TestDeclarativeConstraints,
-        TestFeatureHistory,
-    ]
-
-    for test_class in test_classes:
-        tests = unittest.TestLoader().loadTestsFromTestCase(test_class)
-        test_suite.addTests(tests)
-
-    # 运行测试
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(test_suite)
-
-    # 测试结果统计
-    print("\n" + "=" * 60)
-    print(f"测试总数: {result.testsRun}")
-    print(
-        f"成功: {result.testsRun - len(result.failures) - len(result.errors) - len(result.skipped)}"
-    )
-    print(f"失败: {len(result.failures)}")
-    print(f"错误: {len(result.errors)}")
-    print(f"跳过: {len(result.skipped)}")
-
-    if result.failures:
-        print("\n失败的测试:")
-        for test, traceback in result.failures:
-            print(f"- {test}: {traceback.split('AssertionError:')[-1].strip()}")
-
-    if result.errors:
-        print("\n错误的测试:")
-        for test, traceback in result.errors:
-            print(f"- {test}: {traceback.split('Exception:')[-1].strip()}")
-
-    if result.skipped:
-        print("\n跳过的测试:")
-        for test, reason in result.skipped:
-            print(f"- {test}: {reason}")
-
-    print("\n" + "=" * 60)
-
-    # 返回是否所有测试都通过
-    return len(result.failures) == 0 and len(result.errors) == 0
-
-
-if __name__ == "__main__":
-    # 确保输出目录存在
-    os.makedirs("output", exist_ok=True)
-
-    # 运行测试
-    success = run_comprehensive_tests()
-
-    if success:
-        print("所有测试通过！SimpleCAD API 功能正常。")
-    else:
-        print("部分测试失败。请检查上述错误信息。")
-
-    sys.exit(0 if success else 1)
-
-
-class TestFeatureHistory(unittest.TestCase):
     """Tests for feature history functionality (merged from test_feature_history.py)."""
 
     def setUp(self):
@@ -1415,4 +1160,294 @@ class TestFeatureHistory(unittest.TestCase):
         if feature:
             self.assertEqual(feature.operation, "extrude")
             self.assertIn(feature.feature_type.name, ["EXTRUDE", "SKETCH"])
+
+    def test_05_point_records_feature(self):
+        """Test point creation is recorded in feature history."""
+        import simplecadapi as scad
+
+        point = scad.make_point_rvertex(1, 2, 3)
+        feature = getattr(point, "_feature", None)
+
+        self.assertIsNotNone(feature)
+        self.assertEqual(feature.operation, "make_point")
+
+    def test_06_spline_edge_records_feature(self):
+        """Test spline edge creation is recorded in feature history."""
+        import simplecadapi as scad
+
+        spline = scad.make_spline_redge([(0, 0, 0), (1, 1, 0), (2, 0, 0)])
+        feature = spline.get_feature()
+
+        self.assertIsNotNone(feature)
+        self.assertEqual(feature.operation, "make_spline")
+
+    def test_06b_segment_and_face_variants_record_distinct_features(self):
+        """Test segment and face constructors keep their own feature nodes."""
+        import simplecadapi as scad
+
+        segment_edge = scad.make_segment_redge((0, 0, 0), (2, 0, 0))
+        segment_wire = scad.make_segment_rwire((0, 0, 0), (2, 0, 0))
+        circle_face = scad.make_circle_rface((0, 0, 0), 2.0)
+        rectangle_face = scad.make_rectangle_rface(4.0, 3.0)
+
+        self.assertEqual(segment_edge.get_feature().operation, "make_segment")
+        self.assertEqual(segment_wire.get_feature().operation, "make_segment")
+        self.assertEqual(circle_face.get_feature().operation, "make_circle")
+        self.assertEqual(rectangle_face.get_feature().operation, "make_rectangle")
+
+    def test_06c_make_face_records_independent_feature(self):
+        """Test make_face_from_wire creates its own feature linked to the wire."""
+        import simplecadapi as scad
+
+        wire = scad.make_rectangle_rwire(5.0, 2.0)
+        face = scad.make_face_from_wire_rface(wire)
+        feature = face.get_feature()
+
+        self.assertIsNotNone(feature)
+        self.assertEqual(feature.operation, "make_face")
+        self.assertIn(wire.get_feature_id(), feature.parent_features)
+
+    def test_07_field_surface_records_feature(self):
+        """Test field surface creation is recorded in feature history."""
+        import simplecadapi as scad
+        from simplecadapi import field as Field
+
+        field = Field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 1.0)
+        solid = scad.make_field_surface_rsolid(
+            field,
+            bounds=((-1.2, -1.2, -1.2), (1.2, 1.2, 1.2)),
+            resolution=(8, 8, 8),
+            iso=0.0,
+        )
+        feature = solid.get_feature()
+
+        self.assertIsNotNone(feature)
+        self.assertEqual(feature.operation, "make_field_surface")
+
+    def test_08_non_solid_transform_records_feature(self):
+        """Test non-solid transforms are recorded in feature history."""
+        import simplecadapi as scad
+
+        wire = scad.make_rectangle_rwire(2.0, 1.0)
+        moved = scad.translate_shape(wire, (1.0, 2.0, 0.0))
+        rotated = scad.rotate_shape(moved, 45.0, (0, 0, 1))
+        scaled = scad.scale_shape(rotated, 1.5)
+        mirrored = scad.mirror_shape(scaled, (0, 0, 0), (1, 0, 0))
+
+        self.assertIsInstance(mirrored, scad.Wire)
+        feature = mirrored.get_feature()
+        self.assertIsNotNone(feature)
+        self.assertEqual(feature.operation, "mirror_shape")
+
+    def test_09_freecad_script_covers_new_operations(self):
+        """Test FreeCAD script generation covers newly supported operations."""
+        import simplecadapi as scad
+        from simplecadapi import FeatureExporter, get_global_history
+        from simplecadapi import field as Field
+
+        point = scad.make_point_rvertex(1, 2, 3)
+        spline = scad.make_spline_rwire([(0, 0, 0), (1, 1, 0), (2, 0, 0)])
+        moved = scad.translate_shape(spline, (1, 0, 0))
+        field = Field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 1.0)
+        solid = scad.make_field_surface_rsolid(
+            field,
+            bounds=((-1.1, -1.1, -1.1), (1.1, 1.1, 1.1)),
+            resolution=(8, 8, 8),
+            iso=0.0,
+        )
+
+        self.assertIsNotNone(point)
+        self.assertIsNotNone(moved)
+        self.assertIsNotNone(solid)
+
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        script = FeatureExporter(history)._generate_freecad_script()
+        self.assertIn("Part.Vertex", script)
+        self.assertIn("Part.BSplineCurve", script)
+        self.assertIn("translate_shape", script)
+        self.assertIn("importBrepFromString", script)
+
+    def test_09b_freecad_script_preserves_profile_output_types(self):
+        """Test FreeCAD script preserves edge/wire/face profile variants."""
+        import simplecadapi as scad
+        from simplecadapi import FeatureExporter, get_global_history
+
+        _segment_wire = scad.make_segment_rwire((0, 0, 0), (5, 0, 0))
+        _circle_face = scad.make_circle_rface((0, 0, 0), 3.0)
+        _face_from_wire = scad.make_face_from_wire_rface(scad.make_rectangle_rwire(4.0, 2.0))
+
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        script = FeatureExporter(history)._generate_freecad_script()
+        self.assertIn("Part.Wire([", script)
+        self.assertIn("Part.Face(", script)
+
+    def test_10_boolean_operation_feature(self):
+        """Test boolean operation and feature recording."""
+        import simplecadapi as scad
+
+        box = scad.make_box_rsolid(50, 50, 10)
+        cyl = scad.make_cylinder_rsolid(15, 20)
+        cyl = scad.translate_shape(cyl, (25, 25, -5))
+
+        result_list = scad.cut_rsolidlist(box, cyl)
+        result = result_list[0] if result_list else None
+
+        self.assertIsNotNone(result)
+
+        if hasattr(result, "_feature") and result._feature:
+            feat = result._feature
+            self.assertIn(
+                feat.operation,
+                ["boolean_cut", "boolean_union", "boolean_intersect"],
+            )
+            self.assertIn(
+                feat.feature_type.name,
+                ["BOOLEAN_CUT", "BOOLEAN_UNION", "BOOLEAN_INTERSECT"],
+            )
+
+    def test_11_feature_history_traversal(self):
+        """Test feature history traversal."""
+        import simplecadapi as scad
+
+        extruded_solid = scad.extrude_rsolid(
+            scad.make_rectangle_rwire(30, 20),
+            (0, 0, 1),
+            10,
+        )
+
+        history_chain = extruded_solid.get_feature_history()
+        if history_chain:
+            self.assertGreater(len(history_chain), 0)
+            for feat in history_chain:
+                self.assertIsNotNone(feat.name)
+                self.assertIsNotNone(feat.feature_type)
+
+    def test_12_freecad_script_generation(self):
+        """Test FreeCAD script generation from feature history."""
+        import simplecadapi as scad
+        from simplecadapi import FeatureExporter, create_new_history, get_global_history
+
+        create_new_history("Test Model")
+
+        _box = scad.make_box_rsolid(10, 20, 30)
+        _cyl = scad.make_cylinder_rsolid(5, 15)
+
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        exporter = FeatureExporter(history)
+        script = exporter._generate_freecad_script()
+
+        self.assertIn("import FreeCAD as App", script)
+        self.assertIn("import Part", script)
+        self.assertIn("doc.recompute()", script)
+        self.assertGreater(len(script), 100)
+
+    def test_13_json_export(self):
+        """Test JSON export of feature history."""
+        import json
+        import tempfile
+        import simplecadapi as scad
+        from simplecadapi import (
+            create_new_history,
+            export_feature_history_to_json,
+            get_global_history,
+        )
+
+        create_new_history("JSON Test Model")
+
+        _box = scad.make_box_rsolid(10, 20, 30)
+
+        history = get_global_history()
+        self.assertIsNotNone(history)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json_path = f.name
+
+        try:
+            export_feature_history_to_json(history, json_path)
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.assertEqual(data.get("name"), "JSON Test Model")
+            self.assertGreater(data.get("feature_count", 0), 0)
+            self.assertIn("features", data)
+            self.assertIn("feature_tree", data)
+        finally:
+            if os.path.exists(json_path):
+                os.remove(json_path)
+
+
+def run_comprehensive_tests():
+    """Run the comprehensive test suite."""
+    print("SimpleCAD API 全面单元测试")
+    print("=" * 60)
+
+    test_suite = unittest.TestSuite()
+    test_classes = [
+        TestBasicShapes,
+        TestNewFunctionIntegration,
+        TestTransformations,
+        Test3DOperations,
+        TestBooleanOperations,
+        TestAdvancedFeatures,
+        TestTagging,
+        TestCoordinateSystem,
+        TestExport,
+        TestComplexExamples,
+        TestErrorHandling,
+        TestDeclarativeConstraints,
+        TestFeatureHistory,
+    ]
+
+    for test_class in test_classes:
+        tests = unittest.TestLoader().loadTestsFromTestCase(test_class)
+        test_suite.addTests(tests)
+
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(test_suite)
+
+    print("\n" + "=" * 60)
+    print(f"测试总数: {result.testsRun}")
+    print(
+        f"成功: {result.testsRun - len(result.failures) - len(result.errors) - len(result.skipped)}"
+    )
+    print(f"失败: {len(result.failures)}")
+    print(f"错误: {len(result.errors)}")
+    print(f"跳过: {len(result.skipped)}")
+
+    if result.failures:
+        print("\n失败的测试:")
+        for test, traceback in result.failures:
+            print(f"- {test}: {traceback.split('AssertionError:')[-1].strip()}")
+
+    if result.errors:
+        print("\n错误的测试:")
+        for test, traceback in result.errors:
+            print(f"- {test}: {traceback.split('Exception:')[-1].strip()}")
+
+    if result.skipped:
+        print("\n跳过的测试:")
+        for test, reason in result.skipped:
+            print(f"- {test}: {reason}")
+
+    print("\n" + "=" * 60)
+    return len(result.failures) == 0 and len(result.errors) == 0
+
+
+if __name__ == "__main__":
+    os.makedirs("output", exist_ok=True)
+    success = run_comprehensive_tests()
+
+    if success:
+        print("所有测试通过！SimpleCAD API 功能正常。")
+    else:
+        print("部分测试失败。请检查上述错误信息。")
+
+    sys.exit(0 if success else 1)
 
