@@ -296,6 +296,7 @@ class FeatureExporter:
             "import FreeCAD as App",
             "import math",
             "import Part",
+            "from copy import deepcopy",
             "try:",
             "    import FreeCADGui as Gui",
             "except ImportError:",
@@ -305,6 +306,11 @@ class FeatureExporter:
             "doc = App.newDocument()",
             "",
         ]
+
+        if self._history_uses_scalar_fields():
+            lines.extend(self._generate_freecad_scalar_helpers())
+        if self._history_uses_assembly_features():
+            lines.extend(self._generate_freecad_assembly_helpers())
 
         # Track created objects for dependencies
         created_objects = {}
@@ -393,7 +399,7 @@ class FeatureExporter:
                 "scale_field",
                 "rotate_field",
             }:
-                lines.extend(self._generate_freecad_scalar_field(feature, obj_name))
+                lines.extend(self._generate_freecad_scalar_field(feature, obj_name, created_objects))
             elif feature.operation in {
                 "make_assembly",
                 "clone_assembly",
@@ -407,7 +413,7 @@ class FeatureExporter:
                 "constrain_distance",
                 "stack_parts",
             }:
-                lines.extend(self._generate_freecad_assembly_feature_comment(feature, obj_name))
+                lines.extend(self._generate_freecad_assembly_feature_comment(feature, obj_name, created_objects))
             elif feature.operation == "solve_assembly":
                 lines.extend(self._generate_freecad_solved_assembly(feature, result_name))
             else:
@@ -518,6 +524,167 @@ class FeatureExporter:
         ])
 
         return "\n".join(lines)
+
+    def _history_uses_scalar_fields(self) -> bool:
+        return any(
+            feature.operation.endswith("_field")
+            for feature in self.history.features.values()
+        )
+
+    def _history_uses_assembly_features(self) -> bool:
+        assembly_operations = {
+            "make_assembly",
+            "clone_assembly",
+            "add_part",
+            "clear_constraints",
+            "translate_part",
+            "rotate_part",
+            "constrain_coincident",
+            "constrain_concentric",
+            "constrain_offset",
+            "constrain_distance",
+            "stack_parts",
+            "solve_assembly",
+        }
+        return any(
+            feature.operation in assembly_operations
+            for feature in self.history.features.values()
+        )
+
+    def _generate_freecad_scalar_helpers(self) -> List[str]:
+        return [
+            "# Scalar-field helpers",
+            "def _scad_scalar_node(operation, parameters=None, children=None):",
+            "    return {",
+            "        'kind': 'scalar_field',",
+            "        'operation': operation,",
+            "        'parameters': dict(parameters or {}),",
+            "        'children': list(children or []),",
+            "    }",
+            "",
+            "def _scad_make_sphere_field(center, radius):",
+            "    return _scad_scalar_node('make_sphere_field', {'center': center, 'radius': radius})",
+            "",
+            "def _scad_make_ellipsoid_field(center, radii):",
+            "    return _scad_scalar_node('make_ellipsoid_field', {'center': center, 'radii': radii})",
+            "",
+            "def _scad_make_box_field(center, size):",
+            "    return _scad_scalar_node('make_box_field', {'center': center, 'size': size})",
+            "",
+            "def _scad_make_capsule_field(p0, p1, radius):",
+            "    return _scad_scalar_node('make_capsule_field', {'p0': p0, 'p1': p1, 'radius': radius})",
+            "",
+            "def _scad_union_field(*fields):",
+            "    return _scad_scalar_node('union_field', {'field_count': len(fields)}, fields)",
+            "",
+            "def _scad_intersect_field(*fields):",
+            "    return _scad_scalar_node('intersect_field', {'field_count': len(fields)}, fields)",
+            "",
+            "def _scad_subtract_field(a, b):",
+            "    return _scad_scalar_node('subtract_field', {}, [a, b])",
+            "",
+            "def _scad_smooth_union_field(a, b, k):",
+            "    return _scad_scalar_node('smooth_union_field', {'k': k}, [a, b])",
+            "",
+            "def _scad_smooth_subtract_field(a, b, k):",
+            "    return _scad_scalar_node('smooth_subtract_field', {'k': k}, [a, b])",
+            "",
+            "def _scad_translate_field(field, offset):",
+            "    return _scad_scalar_node('translate_field', {'offset': offset}, [field])",
+            "",
+            "def _scad_scale_field(field, factors):",
+            "    return _scad_scalar_node('scale_field', {'factors': factors}, [field])",
+            "",
+            "def _scad_rotate_field(field, axis, angle):",
+            "    return _scad_scalar_node('rotate_field', {'axis': axis, 'angle': angle}, [field])",
+            "",
+        ]
+
+    def _generate_freecad_assembly_helpers(self) -> List[str]:
+        return [
+            "# Assembly-history helpers",
+            "def _scad_make_assembly(name, part_names, parents=None, local_transforms=None):",
+            "    parents = dict(parents or {})",
+            "    local_transforms = dict(local_transforms or {})",
+            "    return {",
+            "        'kind': 'assembly',",
+            "        'name': name,",
+            "        'order': list(part_names),",
+            "        'parts': {",
+            "            part_name: {",
+            "                'parent': parents.get(part_name),",
+            "                'local_transform': deepcopy(local_transforms.get(part_name)),",
+            "                'ops': [],",
+            "            }",
+            "            for part_name in part_names",
+            "        },",
+            "        'constraints': [],",
+            "    }",
+            "",
+            "def _scad_clone_assembly(assembly):",
+            "    return deepcopy(assembly)",
+            "",
+            "def _scad_add_part(assembly, part_name, parent=None, local_transform=None):",
+            "    new_assembly = _scad_clone_assembly(assembly)",
+            "    new_assembly['parts'][part_name] = {",
+            "        'parent': parent,",
+            "        'local_transform': deepcopy(local_transform),",
+            "        'ops': [],",
+            "    }",
+            "    if part_name not in new_assembly['order']:",
+            "        new_assembly['order'].append(part_name)",
+            "    return new_assembly",
+            "",
+            "def _scad_clear_constraints(assembly):",
+            "    new_assembly = _scad_clone_assembly(assembly)",
+            "    new_assembly['constraints'] = []",
+            "    return new_assembly",
+            "",
+            "def _scad_translate_part(assembly, part_name, vector, frame='world'):",
+            "    new_assembly = _scad_clone_assembly(assembly)",
+            "    new_assembly['parts'].setdefault(part_name, {'parent': None, 'local_transform': None, 'ops': []})",
+            "    new_assembly['parts'][part_name]['ops'].append({",
+            "        'operation': 'translate_part',",
+            "        'vector': vector,",
+            "        'frame': frame,",
+            "    })",
+            "    return new_assembly",
+            "",
+            "def _scad_rotate_part(assembly, part_name, angle_deg, axis='z', origin=(0.0, 0.0, 0.0), frame='world'):",
+            "    new_assembly = _scad_clone_assembly(assembly)",
+            "    new_assembly['parts'].setdefault(part_name, {'parent': None, 'local_transform': None, 'ops': []})",
+            "    new_assembly['parts'][part_name]['ops'].append({",
+            "        'operation': 'rotate_part',",
+            "        'angle_deg': angle_deg,",
+            "        'axis': axis,",
+            "        'origin': origin,",
+            "        'frame': frame,",
+            "    })",
+            "    return new_assembly",
+            "",
+            "def _scad_add_constraint(assembly, operation, parameters):",
+            "    new_assembly = _scad_clone_assembly(assembly)",
+            "    new_assembly['constraints'].append({",
+            "        'operation': operation,",
+            "        'parameters': dict(parameters),",
+            "    })",
+            "    return new_assembly",
+            "",
+            "def _scad_stack_parts(assembly, parts, axis='z', gap=0.0, align='center', justify='start', bounds=None):",
+            "    return _scad_add_constraint(",
+            "        assembly,",
+            "        'stack_parts',",
+            "        {",
+            "            'parts': list(parts),",
+            "            'axis': axis,",
+            "            'gap': gap,",
+            "            'align': align,",
+            "            'justify': justify,",
+            "            'bounds': deepcopy(bounds),",
+            "        },",
+            "    )",
+            "",
+        ]
 
     def _wrap_feature_tree(
         self,
@@ -1214,28 +1381,144 @@ class FeatureExporter:
         lines.append("")
         return lines
 
-    def _generate_freecad_scalar_field(self, feature, obj_name: str) -> List[str]:
-        """Generate a readable Python-side representation for scalar-field nodes."""
+    def _generate_freecad_scalar_field(self, feature, obj_name: str, created_objects: dict) -> List[str]:
+        """Generate executable Python-side scalar-field reconstruction code."""
         parameters = {
             name: param.value
             for name, param in sorted(feature.parameters.items(), key=lambda item: item[0])
         }
+        input_objects = self._get_input_object_names(feature, created_objects)
+        children_expr = f"[{', '.join(input_objects)}]" if input_objects else "[]"
+
+        helper_map = {
+            "make_sphere_field": (
+                "_scad_make_sphere_field",
+                [repr(parameters.get("center", (0.0, 0.0, 0.0))), repr(parameters.get("radius", 1.0))],
+            ),
+            "make_ellipsoid_field": (
+                "_scad_make_ellipsoid_field",
+                [repr(parameters.get("center", (0.0, 0.0, 0.0))), repr(parameters.get("radii", (1.0, 1.0, 1.0)))],
+            ),
+            "make_box_field": (
+                "_scad_make_box_field",
+                [repr(parameters.get("center", (0.0, 0.0, 0.0))), repr(parameters.get("size", (1.0, 1.0, 1.0)))],
+            ),
+            "make_capsule_field": (
+                "_scad_make_capsule_field",
+                [
+                    repr(parameters.get("p0", (0.0, 0.0, 0.0))),
+                    repr(parameters.get("p1", (0.0, 0.0, 1.0))),
+                    repr(parameters.get("radius", 1.0)),
+                ],
+            ),
+            "union_field": ("_scad_union_field", input_objects),
+            "intersect_field": ("_scad_intersect_field", input_objects),
+            "subtract_field": ("_scad_subtract_field", input_objects[:2]),
+            "smooth_union_field": (
+                "_scad_smooth_union_field",
+                input_objects[:2] + [repr(parameters.get("k", 1.0))],
+            ),
+            "smooth_subtract_field": (
+                "_scad_smooth_subtract_field",
+                input_objects[:2] + [repr(parameters.get("k", 1.0))],
+            ),
+            "translate_field": (
+                "_scad_translate_field",
+                input_objects[:1] + [repr(parameters.get("offset", (0.0, 0.0, 0.0)))],
+            ),
+            "scale_field": (
+                "_scad_scale_field",
+                input_objects[:1] + [repr(parameters.get("factors", (1.0, 1.0, 1.0)))],
+            ),
+            "rotate_field": (
+                "_scad_rotate_field",
+                input_objects[:1]
+                + [
+                    repr(parameters.get("axis", (0.0, 0.0, 1.0))),
+                    repr(parameters.get("angle", 0.0)),
+                ],
+            ),
+        }
+
+        helper_name, args = helper_map.get(
+            feature.operation,
+            ("_scad_scalar_node", [repr(feature.operation), repr(parameters), children_expr]),
+        )
+        call_args = ", ".join(args)
+
         return [
             f"# Scalar Field: {feature.name}",
-            f"{obj_name} = {repr({'operation': feature.operation, 'parameters': parameters})}",
+            f"{obj_name} = {helper_name}({call_args})",
             "",
         ]
 
-    def _generate_freecad_assembly_feature_comment(self, feature, obj_name: str) -> List[str]:
-        """Generate readable comments for assembly-history steps."""
+    def _generate_freecad_assembly_feature_comment(self, feature, obj_name: str, created_objects: dict) -> List[str]:
+        """Generate executable Python-side assembly-history reconstruction code."""
         parameters = {
             name: param.value
             for name, param in sorted(feature.parameters.items(), key=lambda item: item[0])
         }
+        input_objects = self._get_input_object_names(feature, created_objects)
+
+        if feature.operation == "make_assembly":
+            lines = [
+                f"# Assembly Step: {feature.operation}",
+                (
+                    f"{obj_name} = _scad_make_assembly("
+                    f"{parameters.get('name', 'assembly')!r}, "
+                    f"{repr(parameters.get('part_names', []))}, "
+                    f"{repr(parameters.get('parents', {}))}, "
+                    f"{repr(parameters.get('local_transforms', {}))})"
+                ),
+                "",
+            ]
+            return lines
+
+        base_obj = input_objects[0] if input_objects else "None"
+        if feature.operation == "clone_assembly":
+            call = f"_scad_clone_assembly({base_obj})"
+        elif feature.operation == "add_part":
+            call = (
+                f"_scad_add_part({base_obj}, {parameters.get('part_name')!r}, "
+                f"{parameters.get('parent')!r}, {repr(parameters.get('local_transform'))})"
+            )
+        elif feature.operation == "clear_constraints":
+            call = f"_scad_clear_constraints({base_obj})"
+        elif feature.operation == "translate_part":
+            call = (
+                f"_scad_translate_part({base_obj}, {parameters.get('part')!r}, "
+                f"{repr(parameters.get('vector', (0.0, 0.0, 0.0)))}, "
+                f"{parameters.get('frame', 'world')!r})"
+            )
+        elif feature.operation == "rotate_part":
+            call = (
+                f"_scad_rotate_part({base_obj}, {parameters.get('part')!r}, "
+                f"{repr(parameters.get('angle_deg', 0.0))}, "
+                f"{repr(parameters.get('axis', 'z'))}, "
+                f"{repr(parameters.get('origin', (0.0, 0.0, 0.0)))}, "
+                f"{parameters.get('frame', 'world')!r})"
+            )
+        elif feature.operation == "stack_parts":
+            call = (
+                f"_scad_stack_parts({base_obj}, {repr(parameters.get('parts', []))}, "
+                f"{parameters.get('axis', 'z')!r}, {repr(parameters.get('gap', 0.0))}, "
+                f"{parameters.get('align', 'center')!r}, {parameters.get('justify', 'start')!r}, "
+                f"{repr(parameters.get('bounds'))})"
+            )
+        elif feature.operation in {
+            "constrain_coincident",
+            "constrain_concentric",
+            "constrain_offset",
+            "constrain_distance",
+        }:
+            call = f"_scad_add_constraint({base_obj}, {feature.operation!r}, {repr(parameters)})"
+        else:
+            call = repr(parameters)
+
         return [
             f"# Assembly Step: {feature.operation}",
             f"# Feature: {feature.name}",
-            f"{obj_name} = {repr(parameters)}",
+            f"{obj_name} = {call}",
             "",
         ]
 

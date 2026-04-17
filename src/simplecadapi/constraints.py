@@ -1163,7 +1163,7 @@ def stack_rassembly(
 
     copied = assembly.copy()
     part_names = [copied._resolve_part_name(part) for part in parts]
-    stack(
+    _apply_stack_layout(
         copied,
         parts=parts,
         axis=axis,
@@ -1249,10 +1249,56 @@ def stack(
     - This is container-level sugar that compiles into a set of `offset(...)`
       constraints internally.
     """
+    names = _apply_stack_layout(
+        assembly,
+        parts=parts,
+        axis=axis,
+        gap=gap,
+        align=align,
+        justify=justify,
+        bounds=bounds,
+    )
+    if len(names) <= 1:
+        return assembly
+
+    bound_params: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    if bounds is not None:
+        bound_params = (
+            {"part": bounds[0].part, "point": bounds[0].local_point},
+            {"part": bounds[1].part, "point": bounds[1].local_point},
+        )
+
+    return _record_assembly_feature(
+        assembly,
+        operation="stack_parts",
+        name=f"Stack_{axis}_{len(names)}Parts",
+        inputs=[assembly],
+        parameters={
+            "parts": names,
+            "axis": axis,
+            "gap": float(gap),
+            "align": align,
+            "justify": justify,
+            "bounds": bound_params,
+        },
+        description=f"Applied stack layout to {len(names)} parts",
+    )
+
+
+def _apply_stack_layout(
+    assembly: Assembly,
+    parts: Sequence[Union[str, PartHandle]],
+    axis: str = "z",
+    gap: float = 0.0,
+    align: Literal["center", "start", "end"] = "center",
+    justify: Literal["start", "center", "end", "space-between"] = "start",
+    bounds: Optional[Tuple[PointAnchor, PointAnchor]] = None,
+) -> List[str]:
+    """Apply stack constraints and return the resolved part-name order."""
 
     names: List[str] = [assembly._resolve_part_name(part) for part in parts]
     if len(names) <= 1:
-        return assembly
+        return names
 
     axis_token = axis.lower().strip()
     _axis_index(axis_token)
@@ -1354,7 +1400,7 @@ def stack(
             axis=axis_token,
         )
 
-    return assembly
+    return names
 
 
 __all__ = [

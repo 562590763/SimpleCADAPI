@@ -2,11 +2,12 @@
 Comprehensive SimpleCADAPI feature-history and FreeCAD export validation.
 
 This script focuses on grouped export scenarios instead of one-test-per-feature:
-1. Creation features: primitives, point, spline, field surface
+1. Creation features: primitives and sketch/profile construction
 2. Advanced modeled features: extrude, revolve, fillet, chamfer, shell
 3. Extended features: intersect, loft, sweep, helical sweep, patterns
-4. Boolean composition flow: transforms + boolean modeling
-5. Hierarchical assembly flow: parent-child parts + solved placements
+4. Boolean composition flow: transforms + chained boolean modeling
+5. Scalar-field flow: field graph + field-surface export
+6. Hierarchical assembly flow: parent-child parts + solved placements
 
 Run with:
     uv run python test/test_feature_export.py
@@ -184,14 +185,6 @@ def test_creation_feature_export() -> None:
         closed=False,
     )
 
-    sphere_field = scad.field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 10.0)
-    field_solid = scad.make_field_surface_rsolid(
-        sphere_field,
-        bounds=((-12.0, -12.0, -12.0), (12.0, 12.0, 12.0)),
-        resolution=(10, 10, 10),
-        iso=0.0,
-    )
-
     print(f"  Box volume: {box.get_volume():.2f}")
     print(f"  Cylinder volume: {cylinder.get_volume():.2f}")
     print(f"  Sphere volume: {sphere.get_volume():.2f}")
@@ -204,7 +197,6 @@ def test_creation_feature_export() -> None:
     print(f"  Rectangle face created: {rectangle_face}")
     print(f"  Face from wire created: {face_from_wire}")
     print(f"  Spline wire created: {spline_wire}")
-    print(f"  Field surface volume: {field_solid.get_volume():.2f}")
 
     history, json_path, script_path, _ = export_history_bundle("test_creation_feature_export")
 
@@ -222,7 +214,6 @@ def test_creation_feature_export() -> None:
             "make_circle",
             "make_face",
             "make_spline",
-            "make_field_surface",
         ],
     )
     assert_script_contains(
@@ -233,12 +224,10 @@ def test_creation_feature_export() -> None:
             "# Sphere:",
             "# Sketch:",
             "# Face:",
-            "# Field Surface:",
             "Part.Vertex(",
             "Part.Wire([",
             "Part.Face(",
             "Part.BSplineCurve([",
-            "importBrepFromString",
         ],
     )
 
@@ -522,9 +511,9 @@ def test_scalarfield_history_export() -> None:
         script_path,
         [
             "# Scalar Field:",
-            "make_sphere_field",
-            "smooth_union_field",
-            "scale_field",
+            "_scad_make_sphere_field(",
+            "_scad_smooth_union_field(",
+            "_scad_scale_field(",
             "# Field Surface:",
             "importBrepFromString",
         ],
@@ -572,6 +561,14 @@ def test_assembly_history_export() -> None:
     )
     assembly = scad.translate_part_rassembly(assembly, "arm", (5.0, 0.0, 0.0))
     assembly = scad.rotate_part_rassembly(assembly, "arm", 15.0, axis="z", frame="local")
+    assembly = scad.stack(
+        assembly,
+        ["base", "pin"],
+        axis="x",
+        gap=5.0,
+        align="center",
+        justify="start",
+    )
     assembly = scad.constrain_offset_rassembly(
         assembly,
         assembly.part("base").bbox("top"),
@@ -594,6 +591,7 @@ def test_assembly_history_export() -> None:
             "make_assembly",
             "translate_part",
             "rotate_part",
+            "stack_parts",
             "constrain_offset",
             "solve_assembly",
         ],
@@ -604,11 +602,108 @@ def test_assembly_history_export() -> None:
             "# Assembly Step: make_assembly",
             "# Assembly Step: translate_part",
             "# Assembly Step: rotate_part",
+            "# Assembly Step: stack_parts",
             "# Assembly Step: constrain_offset",
+            "_scad_make_assembly(",
+            "_scad_translate_part(",
+            "_scad_rotate_part(",
+            "_scad_stack_parts(",
+            "_scad_add_constraint(",
             "# Solve Assembly:",
             "# Assembly Part: base",
             "# Assembly Part: arm",
             "# Assembly Part: pin",
+            "importBrepFromString",
+        ],
+    )
+
+    print_export_summary(history, json_path, script_path)
+
+
+def test_assembly_constraints_export() -> None:
+    create_new_history("Assembly constraints export test")
+
+    base = scad.make_box_rsolid(120, 60, 12)
+    sleeve = scad.make_cylinder_rsolid(radius=10, height=30)
+    rod = scad.make_cylinder_rsolid(radius=4, height=18)
+    cap = scad.make_box_rsolid(20, 20, 8)
+    gauge = scad.make_box_rsolid(12, 12, 12)
+
+    assembly = scad.make_assembly_rassembly(
+        [("base", base), ("sleeve", sleeve), ("rod", rod), ("cap", cap), ("gauge", gauge)],
+        name="constraint_assembly",
+    )
+    assembly = scad.translate_part_rassembly(assembly, "sleeve", (0.0, 0.0, 12.0))
+    assembly = scad.translate_part_rassembly(assembly, "rod", (18.0, 6.0, 20.0))
+    assembly = scad.translate_part_rassembly(assembly, "cap", (26.0, 0.0, 0.0))
+    assembly = scad.translate_part_rassembly(assembly, "gauge", (42.0, 0.0, 18.0))
+    assembly = scad.constrain_concentric_rassembly(
+        assembly,
+        assembly.part("sleeve").axis("z"),
+        assembly.part("rod").axis("z"),
+    )
+    assembly = scad.constrain_offset_rassembly(
+        assembly,
+        assembly.part("sleeve").bbox("bottom"),
+        assembly.part("rod").bbox("bottom"),
+        6.0,
+        axis="z",
+    )
+    assembly = scad.constrain_coincident_rassembly(
+        assembly,
+        assembly.part("base").bbox("top"),
+        assembly.part("cap").bbox("bottom"),
+    )
+    assembly = scad.constrain_distance_rassembly(
+        assembly,
+        assembly.part("sleeve").bbox("center"),
+        assembly.part("gauge").bbox("center"),
+        35.0,
+        fallback_axis="x",
+    )
+    result = scad.solve_assembly_rresult(assembly)
+
+    print(f"  constrained assembly converged: {result.report.converged}")
+    print(f"  constrained assembly part count: {len(result.part_names())}")
+    if not result.report.converged:
+        raise AssertionError("Constraint-focused assembly did not converge")
+
+    history, json_path, script_path, _ = export_history_bundle(
+        "test_assembly_constraints_export"
+    )
+
+    assert_feature_operations(
+        json_path,
+        [
+            "make_box",
+            "make_cylinder",
+            "make_assembly",
+            "translate_part",
+            "constrain_concentric",
+            "constrain_offset",
+            "constrain_coincident",
+            "constrain_distance",
+            "solve_assembly",
+        ],
+    )
+    assert_script_contains(
+        script_path,
+        [
+            "# Assembly Step: make_assembly",
+            "# Assembly Step: translate_part",
+            "# Assembly Step: constrain_concentric",
+            "# Assembly Step: constrain_offset",
+            "# Assembly Step: constrain_coincident",
+            "# Assembly Step: constrain_distance",
+            "_scad_make_assembly(",
+            "_scad_translate_part(",
+            "_scad_add_constraint(",
+            "# Solve Assembly:",
+            "# Assembly Part: base",
+            "# Assembly Part: sleeve",
+            "# Assembly Part: rod",
+            "# Assembly Part: cap",
+            "# Assembly Part: gauge",
             "importBrepFromString",
         ],
     )
@@ -702,12 +797,6 @@ def test_generation_pattern_export_v2() -> None:
 def test_boolean_feature_export_v2() -> None:
     create_new_history("Boolean feature export test")
 
-    intersect_a = scad.make_box_rsolid(40, 40, 40)
-    intersect_b = scad.make_box_rsolid(40, 40, 40, bottom_face_center=(15, 15, 10))
-    intersect_result = scad.intersect_rsolidlist(intersect_a, intersect_b)
-    if not intersect_result:
-        raise AssertionError("intersect_rsolidlist did not produce a result")
-
     base = scad.make_box_rsolid(200, 150, 20)
     pillar = scad.make_cylinder_rsolid(radius=15, height=80)
     pillar = scad.translate_shape(pillar, (50, 50, 20))
@@ -726,7 +815,6 @@ def test_boolean_feature_export_v2() -> None:
     if not final_result:
         raise AssertionError("Boolean cut failed")
 
-    print(f"  intersect volume: {intersect_result[0].get_volume():.2f}")
     print(f"  union volume: {step2[0].get_volume():.2f}")
     print(f"  cut volume: {final_result[0].get_volume():.2f}")
 
@@ -738,7 +826,6 @@ def test_boolean_feature_export_v2() -> None:
             "make_box",
             "make_cylinder",
             "translate_shape",
-            "boolean_intersect",
             "boolean_union",
             "boolean_cut",
         ],
@@ -746,13 +833,13 @@ def test_boolean_feature_export_v2() -> None:
     assert_script_contains(
         script_path,
         [
-            "# Boolean boolean_intersect:",
             "# Translate:",
             "# Boolean boolean_union:",
             "# Boolean boolean_cut:",
-            "Part::Common",
             "Part::Fuse",
             "Part::Cut",
+            "Visibility = True",
+            "Visibility = False",
         ],
     )
 
@@ -765,12 +852,10 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         "# Cylinder:",
         "# Sphere:",
         "# Face:",
-        "# Field Surface:",
         "Part.Vertex(",
         "Part.Wire([",
         "Part.Face(",
         "Part.BSplineCurve([",
-        "importBrepFromString",
     ],
     "test_advanced_feature_export.fcstd.py": [
         "# Extrude:",
@@ -804,19 +889,19 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         "App::Link",
     ],
     "test_boolean_composition_export.fcstd.py": [
-        "# Boolean boolean_intersect:",
         "# Translate:",
         "# Boolean boolean_union:",
         "# Boolean boolean_cut:",
-        "Part::Common",
         "Part::Fuse",
         "Part::Cut",
+        "Visibility = True",
+        "Visibility = False",
     ],
     "test_scalarfield_feature_export.fcstd.py": [
         "# Scalar Field:",
-        "make_sphere_field",
-        "smooth_union_field",
-        "scale_field",
+        "_scad_make_sphere_field(",
+        "_scad_smooth_union_field(",
+        "_scad_scale_field(",
         "# Field Surface:",
         "importBrepFromString",
     ],
@@ -824,11 +909,35 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         "# Assembly Step: make_assembly",
         "# Assembly Step: translate_part",
         "# Assembly Step: rotate_part",
+        "# Assembly Step: stack_parts",
         "# Assembly Step: constrain_offset",
+        "_scad_make_assembly(",
+        "_scad_translate_part(",
+        "_scad_rotate_part(",
+        "_scad_stack_parts(",
+        "_scad_add_constraint(",
         "# Solve Assembly:",
         "# Assembly Part: base",
         "# Assembly Part: arm",
         "# Assembly Part: pin",
+        "importBrepFromString",
+    ],
+    "test_assembly_constraints_export.fcstd.py": [
+        "# Assembly Step: make_assembly",
+        "# Assembly Step: translate_part",
+        "# Assembly Step: constrain_concentric",
+        "# Assembly Step: constrain_offset",
+        "# Assembly Step: constrain_coincident",
+        "# Assembly Step: constrain_distance",
+        "_scad_make_assembly(",
+        "_scad_translate_part(",
+        "_scad_add_constraint(",
+        "# Solve Assembly:",
+        "# Assembly Part: base",
+        "# Assembly Part: sleeve",
+        "# Assembly Part: rod",
+        "# Assembly Part: cap",
+        "# Assembly Part: gauge",
         "importBrepFromString",
     ],
 }
@@ -938,6 +1047,7 @@ def main() -> int:
         ("Boolean feature export", test_boolean_feature_export_v2),
         ("Scalar field feature export", test_scalarfield_history_export),
         ("Assembly history export", test_assembly_history_export),
+        ("Assembly constraints export", test_assembly_constraints_export),
     ]
 
     for test_name, test_func in tests:
