@@ -707,12 +707,13 @@ def make_field_surface_rsolid(
             "cap_bounds": bool(cap_bounds),
         }
         solid.set_metadata("field_report", report)
+        field_inputs = [field] if isinstance(field, ScalarField) else []
         solid = _record_generic_feature(
             output_shape=solid,
             name="Field_Surface",
             operation="make_field_surface",
             feature_type=FeatureType.FIELD,
-            inputs=[],
+            inputs=field_inputs,
             parameters={
                 "bounds": bounds,
                 "resolution": resolution,
@@ -1783,7 +1784,12 @@ def _record_transformed_feature(
     Returns:
         The shape with feature recorded
     """
-    from .feature_history import get_global_history, create_new_history, Parameter
+    from .feature_history import (
+        get_global_history,
+        create_new_history,
+        get_registered_feature_id,
+        Parameter,
+    )
     
     history = get_global_history()
     if history is None:
@@ -1792,10 +1798,7 @@ def _record_transformed_feature(
     parent_ids = []
     input_ids = []
     for item in input_shapes:
-        feature = getattr(item, "_feature", None)
-        feature_id = getattr(feature, "feature_id", None) or getattr(
-            item, "_feature_id", None
-        )
+        feature_id = get_registered_feature_id(item)
         if feature_id is not None:
             parent_ids.append(feature_id)
             input_ids.append(feature_id)
@@ -1860,7 +1863,7 @@ def _record_modifier_feature(
     feature_type: Any,
 ) -> Solid:
     """Record a single-input solid modifier feature such as fillet/chamfer/shell."""
-    from .feature_history import get_global_history, Parameter
+    from .feature_history import get_global_history, get_registered_feature_id, Parameter
 
     history = get_global_history()
     if history is None:
@@ -1868,8 +1871,8 @@ def _record_modifier_feature(
 
     parent_ids = []
     input_ids = []
-    if hasattr(base_solid, '_feature') and base_solid._feature is not None:
-        feature_id = base_solid._feature.feature_id
+    feature_id = get_registered_feature_id(base_solid)
+    if feature_id is not None:
         parent_ids.append(feature_id)
         input_ids.append(feature_id)
 
@@ -1904,7 +1907,12 @@ def _record_generic_feature(
     description: str = "",
 ):
     """Record a general feature with arbitrary inputs and output."""
-    from .feature_history import get_global_history, create_new_history, Parameter
+    from .feature_history import (
+        get_global_history,
+        create_new_history,
+        get_registered_feature_id,
+        Parameter,
+    )
 
     history = get_global_history()
     if history is None:
@@ -1913,10 +1921,7 @@ def _record_generic_feature(
     parent_ids: List[str] = []
     input_ids: List[str] = []
     for item in inputs:
-        feature = getattr(item, "_feature", None)
-        feature_id = getattr(feature, "feature_id", None) or getattr(
-            item, "_feature_id", None
-        )
+        feature_id = get_registered_feature_id(item)
         if feature_id and feature_id not in input_ids:
             input_ids.append(feature_id)
             parent_ids.append(feature_id)

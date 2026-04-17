@@ -125,10 +125,8 @@ from .feature_history import (
 
 from .feature_export import (
     FeatureExporter,
-    export_assembly_result_to_freecad_script,
     export_feature_history_to_json,
     export_solid_with_history,
-    generate_freecad_assembly_script,
     generate_feature_report,
     print_feature_report,
 )
@@ -301,10 +299,8 @@ __all__ = [
     "get_global_history",
     "set_global_history",
     "FeatureExporter",
-    "export_assembly_result_to_freecad_script",
     "export_feature_history_to_json",
     "export_solid_with_history",
-    "generate_freecad_assembly_script",
     "generate_feature_report",
     "print_feature_report",
     "field",

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from copy import deepcopy
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import math
 
 import cadquery as cq
@@ -824,6 +824,56 @@ class Assembly:
         return transformed
 
 
+def _matrix_to_nested_list(
+    transform: Optional[Union[np.ndarray, Sequence[Sequence[float]]]]
+) -> Optional[List[List[float]]]:
+    if transform is None:
+        return None
+    arr = np.asarray(transform, dtype=float)
+    return arr.tolist()
+
+
+def _record_assembly_feature(
+    output_obj: Any,
+    operation: str,
+    name: str,
+    inputs: Sequence[Any],
+    parameters: Dict[str, Any],
+    description: str = "",
+) -> Any:
+    from .feature_history import (
+        FeatureType,
+        create_new_history,
+        get_global_history,
+        get_registered_feature_id,
+    )
+
+    history = get_global_history()
+    if history is None:
+        history = create_new_history("SimpleCAD Assembly")
+
+    input_ids: List[str] = []
+    parent_ids: List[str] = []
+    for item in inputs:
+        feature_id = get_registered_feature_id(item)
+        if feature_id and feature_id not in input_ids:
+            input_ids.append(feature_id)
+            parent_ids.append(feature_id)
+
+    history.add_feature(
+        name=name,
+        operation=operation,
+        feature_type=FeatureType.CUSTOM,
+        inputs=list(inputs),
+        input_ids=input_ids,
+        parameters=parameters,
+        output=output_obj,
+        description=description,
+        parent_ids=parent_ids if parent_ids else None,
+    )
+    return output_obj
+
+
 def make_assembly_rassembly(
     parts: Sequence[Tuple[str, Solid]],
     name: str = "assembly",
@@ -866,7 +916,23 @@ def make_assembly_rassembly(
                 f"无法解析父子关系（可能父节点缺失或存在循环依赖）: {unresolved}"
             )
 
-    return asm
+    return _record_assembly_feature(
+        asm,
+        operation="make_assembly",
+        name=f"Assembly_{name}",
+        inputs=[solid for _, solid in parts],
+        parameters={
+            "name": name,
+            "part_names": [part_name for part_name, _ in parts],
+            "parents": dict(parent_map),
+            "local_transforms": {
+                part_name: _matrix_to_nested_list(transform_map.get(part_name))
+                for part_name, _ in parts
+                if part_name in transform_map
+            },
+        },
+        description=f"Created assembly '{name}' with {len(parts)} parts",
+    )
 
 
 def clone_assembly_rassembly(assembly: Assembly) -> Assembly:
@@ -874,7 +940,15 @@ def clone_assembly_rassembly(assembly: Assembly) -> Assembly:
 
     if not isinstance(assembly, Assembly):
         raise ValueError("clone_assembly_rassembly 仅接受 Assembly")
-    return assembly.copy()
+    copied = assembly.copy()
+    return _record_assembly_feature(
+        copied,
+        operation="clone_assembly",
+        name=f"Clone_{assembly.name}",
+        inputs=[assembly],
+        parameters={"name": assembly.name, "part_names": assembly.part_names()},
+        description=f"Cloned assembly '{assembly.name}'",
+    )
 
 
 def add_part_rassembly(
@@ -888,7 +962,19 @@ def add_part_rassembly(
 
     copied = assembly.copy()
     copied.add_part(name, solid, parent=parent, local_transform=local_transform)
-    return copied
+    parent_name = copied._resolve_part_name(parent) if parent is not None else None
+    return _record_assembly_feature(
+        copied,
+        operation="add_part",
+        name=f"AddPart_{name}",
+        inputs=[assembly, solid],
+        parameters={
+            "part_name": name,
+            "parent": parent_name,
+            "local_transform": _matrix_to_nested_list(local_transform),
+        },
+        description=f"Added part '{name}' to assembly",
+    )
 
 
 def clear_constraints_rassembly(assembly: Assembly) -> Assembly:
@@ -896,7 +982,14 @@ def clear_constraints_rassembly(assembly: Assembly) -> Assembly:
 
     copied = assembly.copy()
     copied.clear_constraints()
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="clear_constraints",
+        name=f"ClearConstraints_{assembly.name}",
+        inputs=[assembly],
+        parameters={"name": assembly.name},
+        description=f"Cleared constraints for assembly '{assembly.name}'",
+    )
 
 
 def translate_part_rassembly(
@@ -908,8 +1001,16 @@ def translate_part_rassembly(
     """Type-2 mapping: translate a part and return a new assembly."""
 
     copied = assembly.copy()
+    part_name = copied._resolve_part_name(part)
     copied.translate_part(part, vector, frame=frame)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="translate_part",
+        name=f"TranslatePart_{part_name}",
+        inputs=[assembly],
+        parameters={"part": part_name, "vector": tuple(vector), "frame": frame},
+        description=f"Translated part '{part_name}' in {frame} frame",
+    )
 
 
 def rotate_part_rassembly(
@@ -923,8 +1024,22 @@ def rotate_part_rassembly(
     """Type-2 mapping: rotate a part and return a new assembly."""
 
     copied = assembly.copy()
+    part_name = copied._resolve_part_name(part)
     copied.rotate_part(part, angle_deg, axis=axis, origin=origin, frame=frame)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="rotate_part",
+        name=f"RotatePart_{part_name}",
+        inputs=[assembly],
+        parameters={
+            "part": part_name,
+            "angle_deg": float(angle_deg),
+            "axis": axis,
+            "origin": tuple(origin),
+            "frame": frame,
+        },
+        description=f"Rotated part '{part_name}' in {frame} frame",
+    )
 
 
 def constrain_coincident_rassembly(
@@ -936,7 +1051,19 @@ def constrain_coincident_rassembly(
 
     copied = assembly.copy()
     copied.coincident(reference, moving)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="constrain_coincident",
+        name=f"Coincident_{moving.part}_to_{reference.part}",
+        inputs=[assembly],
+        parameters={
+            "reference_part": reference.part,
+            "reference_point": reference.local_point,
+            "moving_part": moving.part,
+            "moving_point": moving.local_point,
+        },
+        description="Added coincident assembly constraint",
+    )
 
 
 def constrain_concentric_rassembly(
@@ -949,7 +1076,22 @@ def constrain_concentric_rassembly(
 
     copied = assembly.copy()
     copied.concentric(reference, moving, same_direction=same_direction)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="constrain_concentric",
+        name=f"Concentric_{moving.part}_to_{reference.part}",
+        inputs=[assembly],
+        parameters={
+            "reference_part": reference.part,
+            "reference_point": reference.local_point,
+            "reference_direction": reference.local_direction,
+            "moving_part": moving.part,
+            "moving_point": moving.local_point,
+            "moving_direction": moving.local_direction,
+            "same_direction": bool(same_direction),
+        },
+        description="Added concentric assembly constraint",
+    )
 
 
 def constrain_offset_rassembly(
@@ -963,7 +1105,21 @@ def constrain_offset_rassembly(
 
     copied = assembly.copy()
     copied.offset(reference, moving, distance, axis=axis)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="constrain_offset",
+        name=f"Offset_{moving.part}_from_{reference.part}",
+        inputs=[assembly],
+        parameters={
+            "reference_part": reference.part,
+            "reference_point": reference.local_point,
+            "moving_part": moving.part,
+            "moving_point": moving.local_point,
+            "distance": float(distance),
+            "axis": axis,
+        },
+        description="Added offset assembly constraint",
+    )
 
 
 def constrain_distance_rassembly(
@@ -977,7 +1133,21 @@ def constrain_distance_rassembly(
 
     copied = assembly.copy()
     copied.distance(reference, moving, distance, fallback_axis=fallback_axis)
-    return copied
+    return _record_assembly_feature(
+        copied,
+        operation="constrain_distance",
+        name=f"Distance_{moving.part}_from_{reference.part}",
+        inputs=[assembly],
+        parameters={
+            "reference_part": reference.part,
+            "reference_point": reference.local_point,
+            "moving_part": moving.part,
+            "moving_point": moving.local_point,
+            "distance": float(distance),
+            "fallback_axis": fallback_axis,
+        },
+        description="Added distance assembly constraint",
+    )
 
 
 def stack_rassembly(
@@ -992,6 +1162,7 @@ def stack_rassembly(
     """Type-2 mapping: apply a stack layout and return a new assembly."""
 
     copied = assembly.copy()
+    part_names = [copied._resolve_part_name(part) for part in parts]
     stack(
         copied,
         parts=parts,
@@ -1001,7 +1172,27 @@ def stack_rassembly(
         justify=justify,
         bounds=bounds,
     )
-    return copied
+    bound_params: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    if bounds is not None:
+        bound_params = (
+            {"part": bounds[0].part, "point": bounds[0].local_point},
+            {"part": bounds[1].part, "point": bounds[1].local_point},
+        )
+    return _record_assembly_feature(
+        copied,
+        operation="stack_parts",
+        name=f"Stack_{axis}_{len(part_names)}Parts",
+        inputs=[assembly],
+        parameters={
+            "parts": part_names,
+            "axis": axis,
+            "gap": float(gap),
+            "align": align,
+            "justify": justify,
+            "bounds": bound_params,
+        },
+        description=f"Applied stack layout to {len(part_names)} parts",
+    )
 
 
 def solve_assembly_rresult(
@@ -1012,7 +1203,23 @@ def solve_assembly_rresult(
     """Type-2 mapping: map an assembly to a solve result without mutating it."""
 
     copied = assembly.copy()
-    return copied.solve(max_iterations=max_iterations, tolerance=tolerance)
+    result = copied.solve(max_iterations=max_iterations, tolerance=tolerance)
+    return _record_assembly_feature(
+        result,
+        operation="solve_assembly",
+        name=f"Solve_{assembly.name}",
+        inputs=[assembly],
+        parameters={
+            "name": assembly.name,
+            "max_iterations": int(max_iterations),
+            "tolerance": float(tolerance),
+            "part_names": result.part_names(),
+            "converged": bool(result.report.converged),
+            "iterations": int(result.report.iterations),
+            "max_delta": float(result.report.max_delta),
+        },
+        description=f"Solved assembly '{assembly.name}'",
+    )
 
 
 def stack(

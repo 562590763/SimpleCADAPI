@@ -1,4 +1,4 @@
-"""
+﻿"""
 Comprehensive SimpleCADAPI feature-history and FreeCAD export validation.
 
 This script focuses on grouped export scenarios instead of one-test-per-feature:
@@ -53,21 +53,19 @@ print("SimpleCADAPI Comprehensive Feature Export Test")
 print(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 80)
 
-print("\n【模块导入】")
+print("\n[Module Import]")
 try:
     import simplecadapi as scad
     from simplecadapi import (
         FeatureExporter,
         create_new_history,
-        export_assembly_result_to_freecad_script,
         export_feature_history_to_json,
-        generate_freecad_assembly_script,
         get_global_history,
     )
 
-    print("✓ 所有模块导入成功")
+    print("All modules imported successfully")
 except ImportError as exc:
-    print(f"✗ 导入失败: {exc}")
+    print(f"Import failed: {exc}")
     sys.exit(1)
 
 
@@ -87,7 +85,8 @@ def assert_feature_operations(json_path: Path, required_operations: Sequence[str
     missing = [operation for operation in required_operations if operation not in operations]
     if missing:
         raise AssertionError(
-            f"{json_path.name} 缺少特征操作: {', '.join(missing)}; 当前操作: {operations}"
+            f"{json_path.name} is missing feature operations: {', '.join(missing)}; "
+            f"current operations: {operations}"
         )
 
 
@@ -97,7 +96,9 @@ def assert_script_contains(script_path: Path, required_fragments: Sequence[str])
 
     missing = [fragment for fragment in required_fragments if fragment not in content]
     if missing:
-        raise AssertionError(f"{script_path.name} 缺少脚本片段: {', '.join(missing)}")
+        raise AssertionError(
+            f"{script_path.name} is missing script fragments: {', '.join(missing)}"
+        )
 
 
 def export_history_bundle(
@@ -108,7 +109,7 @@ def export_history_bundle(
     """Export current global history to JSON and a FreeCAD script."""
     history = get_global_history()
     if history is None:
-        raise AssertionError("当前没有可导出的 feature history")
+        raise AssertionError("No feature history is currently available for export")
 
     json_path = OUTPUT_DIR / f"{base_name}.json"
     script_path = OUTPUT_DIR / f"{base_name}.fcstd.py"
@@ -137,34 +138,34 @@ def print_export_summary(
     script_path: Path,
     geometry_json_path: Path | None = None,
 ) -> None:
-    print(f"  特征数量: {len(history.features)}")
-    print(f"  JSON 导出: {json_path}")
+    print(f"  Feature count: {len(history.features)}")
+    print(f"  JSON export: {json_path}")
     if geometry_json_path is not None:
-        print(f"  带几何 JSON: {geometry_json_path}")
-    print(f"  FreeCAD 脚本: {script_path}")
+        print(f"  Geometry JSON: {geometry_json_path}")
+    print(f"  FreeCAD script: {script_path}")
 
 
 def run_test(test_name: str, test_func: Callable[[], None]) -> None:
     """Run one test and record the result."""
     global all_tests_passed
 
-    print(f"\n【测试: {test_name}】")
+    print(f"\n[Test: {test_name}]")
     try:
         test_func()
-        print(f"✓ {test_name} 通过")
+        print(f"PASS: {test_name}")
         test_results.append({"name": test_name, "status": "PASS"})
     except Exception as exc:
-        print(f"✗ {test_name} 失败: {exc}")
+        print(f"FAIL: {test_name}: {exc}")
         traceback.print_exc()
         test_results.append({"name": test_name, "status": "FAIL", "error": str(exc)})
         all_tests_passed = False
 
 
 # =============================================================================
-# 测试 1: 创建类特征导出
+# Test 1: Creation Feature Export
 # =============================================================================
 def test_creation_feature_export() -> None:
-    create_new_history("创建类特征导出测试")
+    create_new_history("Creation feature export test")
 
     box = scad.make_box_rsolid(50, 30, 20)
     cylinder = scad.make_cylinder_rsolid(radius=10, height=40)
@@ -191,19 +192,19 @@ def test_creation_feature_export() -> None:
         iso=0.0,
     )
 
-    print(f"  立方体体积: {box.get_volume():.2f}")
-    print(f"  圆柱体积: {cylinder.get_volume():.2f}")
-    print(f"  球体体积: {sphere.get_volume():.2f}")
-    print(f"  圆锥体积: {cone.get_volume():.2f}")
-    print(f"  圆环体积: {torus.get_volume():.2f}")
-    print(f"  点创建成功: {point}")
-    print(f"  线段边创建成功: {segment_edge}")
-    print(f"  线段线创建成功: {segment_wire}")
-    print(f"  圆面创建成功: {circle_face}")
-    print(f"  矩形面创建成功: {rectangle_face}")
-    print(f"  由线生成面成功: {face_from_wire}")
-    print(f"  样条线创建成功: {spline_wire}")
-    print(f"  场函数等势面体积: {field_solid.get_volume():.2f}")
+    print(f"  Box volume: {box.get_volume():.2f}")
+    print(f"  Cylinder volume: {cylinder.get_volume():.2f}")
+    print(f"  Sphere volume: {sphere.get_volume():.2f}")
+    print(f"  Cone volume: {cone.get_volume():.2f}")
+    print(f"  Torus volume: {torus.get_volume():.2f}")
+    print(f"  Point created: {point}")
+    print(f"  Segment edge created: {segment_edge}")
+    print(f"  Segment wire created: {segment_wire}")
+    print(f"  Circle face created: {circle_face}")
+    print(f"  Rectangle face created: {rectangle_face}")
+    print(f"  Face from wire created: {face_from_wire}")
+    print(f"  Spline wire created: {spline_wire}")
+    print(f"  Field surface volume: {field_solid.get_volume():.2f}")
 
     history, json_path, script_path, _ = export_history_bundle("test_creation_feature_export")
 
@@ -245,10 +246,10 @@ def test_creation_feature_export() -> None:
 
 
 # =============================================================================
-# 测试 2: 高级建模特征导出
+# Test 2: Advanced Feature Export
 # =============================================================================
 def test_advanced_feature_export() -> None:
-    create_new_history("高级建模特征导出测试")
+    create_new_history("Advanced feature export test")
 
     rect = scad.make_rectangle_rwire(width=80, height=60)
     extruded = scad.extrude_rsolid(rect, direction=(0, 0, 1), distance=30)
@@ -272,15 +273,15 @@ def test_advanced_feature_export() -> None:
     top_faces = [face for face in base_body.get_faces() if face.has_tag("top")]
     shelled = scad.shell_rsolid(base_body, top_faces[:1], 2.0)
 
-    print("  创建矩形轮廓并拉伸")
-    print(f"  拉伸后体积: {extruded.get_volume():.2f}")
-    print("  创建圆形轮廓并旋转")
-    print(f"  旋转后体积: {revolved.get_volume():.2f}")
-    print(f"  非 Solid 变换后线框: {mirrored_wire}")
-    print(f"  基础体体积: {base_body.get_volume():.2f}")
-    print(f"  圆角后体积: {filleted.get_volume():.2f}")
-    print(f"  倒角后体积: {chamfered.get_volume():.2f}")
-    print(f"  抽壳后体积: {shelled.get_volume():.2f}")
+    print("  Created rectangular profile and extruded it")
+    print(f"  Extruded volume: {extruded.get_volume():.2f}")
+    print("  Created circular profile and revolved it")
+    print(f"  Revolved volume: {revolved.get_volume():.2f}")
+    print(f"  Wire after non-solid transforms: {mirrored_wire}")
+    print(f"  Base body volume: {base_body.get_volume():.2f}")
+    print(f"  Filleted volume: {filleted.get_volume():.2f}")
+    print(f"  Chamfered volume: {chamfered.get_volume():.2f}")
+    print(f"  Shelled volume: {shelled.get_volume():.2f}")
 
     history, json_path, script_path, _ = export_history_bundle("test_advanced_feature_export")
 
@@ -327,16 +328,16 @@ def test_advanced_feature_export() -> None:
 
 
 # =============================================================================
-# 测试 3: 扩展特征导出
+# Test 3: Extended Feature Export
 # =============================================================================
 def test_generation_pattern_export() -> None:
-    create_new_history("扩展特征导出测试")
+    create_new_history("Extended feature export test")
 
     intersect_a = scad.make_box_rsolid(40, 40, 40)
     intersect_b = scad.make_box_rsolid(40, 40, 40, bottom_face_center=(15, 15, 10))
     intersect_result = scad.intersect_rsolidlist(intersect_a, intersect_b)
     if not intersect_result:
-        raise AssertionError("intersect_rsolidlist 未生成交集结果")
+        raise AssertionError("intersect_rsolidlist did not produce a result")
 
     loft_bottom = scad.make_circle_rwire(center=(0, 0, 0), radius=12)
     loft_top = scad.make_circle_rwire(center=(0, 0, 30), radius=6)
@@ -369,12 +370,12 @@ def test_generation_pattern_export() -> None:
         total_rotation_angle=360,
     )
 
-    print(f"  相交后体积: {intersect_result[0].get_volume():.2f}")
-    print(f"  放样后体积: {lofted.get_volume():.2f}")
-    print(f"  扫掠后体积: {swept.get_volume():.2f}")
-    print(f"  螺旋扫掠后体积: {helical.get_volume():.2f}")
-    print(f"  线性阵列数量: {len(linear_pattern)}")
-    print(f"  径向阵列数量: {len(radial_pattern)}")
+    print(f"  Intersect volume: {intersect_result[0].get_volume():.2f}")
+    print(f"  Loft volume: {lofted.get_volume():.2f}")
+    print(f"  Sweep volume: {swept.get_volume():.2f}")
+    print(f"  Helical sweep volume: {helical.get_volume():.2f}")
+    print(f"  Linear pattern count: {len(linear_pattern)}")
+    print(f"  Radial pattern count: {len(radial_pattern)}")
 
     history, json_path, script_path, geometry_json_path = export_history_bundle(
         "test_extended_feature_export",
@@ -412,20 +413,20 @@ def test_generation_pattern_export() -> None:
     )
 
     if geometry_json_path is None:
-        raise AssertionError("扩展导出缺少带几何 JSON 文件")
+        raise AssertionError("Extended export is missing the geometry JSON file")
 
     geometry_data = load_json_file(geometry_json_path)
     if not any("output" in feature for feature in geometry_data.get("features", [])):
-        raise AssertionError("include_geometry=True 时未导出 output 字段")
+        raise AssertionError("include_geometry=True did not export output data")
 
     print_export_summary(history, json_path, script_path, geometry_json_path)
 
 
 # =============================================================================
-# 测试 4: 复杂装配导出
+# Test 4: Boolean Composition Export
 # =============================================================================
 def test_boolean_feature_export() -> None:
-    create_new_history("复杂布尔组合导出测试")
+    create_new_history("Boolean composition export test")
 
     base = scad.make_box_rsolid(200, 150, 20)
 
@@ -440,20 +441,20 @@ def test_boolean_feature_export() -> None:
 
     step1 = scad.union_rsolidlist(base, pillar)
     if not step1:
-        raise AssertionError("base 与 pillar 联合失败")
+        raise AssertionError("Boolean union failed for base and pillar")
     step2 = scad.union_rsolidlist(step1[0], beam)
     if not step2:
-        raise AssertionError("step1 与 beam 联合失败")
+        raise AssertionError("Boolean union failed for step1 and beam")
     final_result = scad.cut_rsolidlist(step2[0], hole)
     if not final_result:
-        raise AssertionError("复杂布尔组合最终切除失败")
+        raise AssertionError("Final boolean cut failed")
 
-    print(f"  底座体积: {base.get_volume():.2f}")
-    print(f"  立柱体积: {pillar.get_volume():.2f}")
-    print(f"  横梁体积: {beam.get_volume():.2f}")
-    print(f"  底座+立柱体积: {step1[0].get_volume():.2f}")
-    print(f"  底座+立柱+横梁体积: {step2[0].get_volume():.2f}")
-    print(f"  最终装配体体积: {final_result[0].get_volume():.2f}")
+    print(f"  Base volume: {base.get_volume():.2f}")
+    print(f"  Pillar volume: {pillar.get_volume():.2f}")
+    print(f"  Beam volume: {beam.get_volume():.2f}")
+    print(f"  Base + pillar volume: {step1[0].get_volume():.2f}")
+    print(f"  Base + pillar + beam volume: {step2[0].get_volume():.2f}")
+    print(f"  Final cut volume: {final_result[0].get_volume():.2f}")
 
     history, json_path, script_path, _ = export_history_bundle("test_boolean_composition_export")
 
@@ -480,189 +481,139 @@ def test_boolean_feature_export() -> None:
 
 
 # =============================================================================
-# 测试 5: 声明式装配脚本导出
+# Test 5: Scalar Field History Export
 # =============================================================================
-def test_legacy_declarative_assembly_export() -> None:
-    base = scad.make_box_rsolid(160, 100, 12)
-    left_column = scad.make_cylinder_rsolid(radius=8, height=55)
-    right_column = scad.make_cylinder_rsolid(radius=8, height=55)
-    top_beam = scad.make_box_rsolid(96, 20, 12)
+def test_scalarfield_history_export() -> None:
+    create_new_history("Scalar field history export test")
+
+    sphere = scad.field.make_sphere_rscalarfield((0.0, 0.0, 0.0), 10.0)
+    box = scad.field.make_box_rscalarfield((0.0, 0.0, 0.0), (18.0, 18.0, 18.0))
+    translated = scad.field.translate_rscalarfield(sphere, (2.0, 0.0, 0.0))
+    rotated = scad.field.rotate_rscalarfield(translated, (0.0, 0.0, 1.0), 30.0)
+    blended = scad.field.smooth_union_rscalarfield(rotated, box, 2.5)
+    scaled = scad.field.scale_rscalarfield(blended, (1.0, 1.2, 0.8))
+    field_solid = scad.make_field_surface_rsolid(
+        scaled,
+        bounds=((-12.0, -12.0, -12.0), (12.0, 12.0, 12.0)),
+        resolution=(10, 10, 10),
+        iso=0.0,
+    )
+
+    print(f"  scalar field solid volume: {field_solid.get_volume():.2f}")
+
+    history, json_path, script_path, geometry_json_path = export_history_bundle(
+        "test_scalarfield_feature_export",
+        include_geometry_json=True,
+    )
+
+    assert_feature_operations(
+        json_path,
+        [
+            "make_sphere_field",
+            "make_box_field",
+            "translate_field",
+            "rotate_field",
+            "smooth_union_field",
+            "scale_field",
+            "make_field_surface",
+        ],
+    )
+    assert_script_contains(
+        script_path,
+        [
+            "# Scalar Field:",
+            "make_sphere_field",
+            "smooth_union_field",
+            "scale_field",
+            "# Field Surface:",
+            "importBrepFromString",
+        ],
+    )
+
+    if geometry_json_path is None:
+        raise AssertionError("Scalar field export missing geometry JSON")
+
+    geometry_data = load_json_file(geometry_json_path)
+    field_features = [
+        feature for feature in geometry_data.get("features", [])
+        if feature.get("operation", "").endswith("_field")
+    ]
+    if not field_features:
+        raise AssertionError("Scalar field features were not exported to geometry JSON")
+
+    print_export_summary(history, json_path, script_path, geometry_json_path)
+
+
+def test_assembly_history_export() -> None:
+    create_new_history("Assembly history export test")
+
+    base = scad.make_box_rsolid(100, 60, 10)
+    arm = scad.make_box_rsolid(50, 10, 10)
+    pin = scad.make_cylinder_rsolid(radius=4, height=20)
 
     assembly = scad.make_assembly_rassembly(
-        [
-            ("base", base),
-            ("left_column", left_column),
-            ("right_column", right_column),
-            ("top_beam", top_beam),
-        ],
-        parents={
-            "left_column": "base",
-            "right_column": "base",
-            "top_beam": "base",
-        },
+        [("base", base), ("arm", arm), ("pin", pin)],
+        parents={"arm": "base", "pin": "base"},
         local_transforms={
-            "left_column": [
-                [1.0, 0.0, 0.0, -40.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 12.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "right_column": [
-                [1.0, 0.0, 0.0, 40.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 12.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "top_beam": [
+            "arm": [
                 [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 20.0],
+                [0.0, 0.0, 1.0, 10.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            "pin": [
+                [1.0, 0.0, 0.0, 20.0],
                 [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 67.0],
+                [0.0, 0.0, 1.0, 10.0],
                 [0.0, 0.0, 0.0, 1.0],
             ],
         },
-        name="test_assembly",
+        name="history_assembly",
     )
-    assembly = scad.rotate_part_rassembly(
+    assembly = scad.translate_part_rassembly(assembly, "arm", (5.0, 0.0, 0.0))
+    assembly = scad.rotate_part_rassembly(assembly, "arm", 15.0, axis="z", frame="local")
+    assembly = scad.constrain_offset_rassembly(
         assembly,
-        "top_beam",
-        90,
+        assembly.part("base").bbox("top"),
+        assembly.part("arm").bbox("bottom"),
+        0.0,
         axis="z",
-        origin=(0, 0, 67),
     )
-
     result = scad.solve_assembly_rresult(assembly)
-    script_path = OUTPUT_DIR / "test_declarative_assembly_export.fcstd.py"
-    export_assembly_result_to_freecad_script(assembly, str(script_path))
-
-    if script_path not in generated_script_paths:
-        generated_script_paths.append(script_path)
-
-    script_preview = generate_freecad_assembly_script(assembly)
-    if "Assembly imported successfully" not in script_preview:
-        raise AssertionError("Assembly FreeCAD 脚本生成失败")
-
-    assert_script_contains(
-        script_path,
-        [
-            "# Assembly Part: base",
-            "# Assembly Part: left_column",
-            "# Assembly Part: right_column",
-            "# Assembly Part: top_beam",
-            "App::Part",
-            ".addObject(",
-            ".Placement = App.Placement(App.Matrix(",
-            "importBrepFromString",
-            "Part::Feature",
-            "Assembly imported successfully with 4 parts",
-        ],
-    )
-
-    print(f"  装配求解是否收敛: {result.report.converged}")
-    print(f"  装配零件数量: {len(result.part_names())}")
-    print(f"  Assembly FreeCAD 脚本: {script_path}")
-
-
-def test_connected_assembly_export() -> None:
-    base_plate = scad.make_box_rsolid(180, 120, 10)
-    front_left_post = scad.make_box_rsolid(12, 12, 80)
-    front_right_post = scad.make_box_rsolid(12, 12, 80)
-    rear_left_post = scad.make_box_rsolid(12, 12, 80)
-    rear_right_post = scad.make_box_rsolid(12, 12, 80)
-    top_plate = scad.make_box_rsolid(180, 120, 8)
-    lower_shelf = scad.make_box_rsolid(156, 96, 6)
-
-    assembly = scad.make_assembly_rassembly(
-        [
-            ("base_plate", base_plate),
-            ("front_left_post", front_left_post),
-            ("front_right_post", front_right_post),
-            ("rear_left_post", rear_left_post),
-            ("rear_right_post", rear_right_post),
-            ("top_plate", top_plate),
-            ("lower_shelf", lower_shelf),
-        ],
-        parents={
-            "front_left_post": "base_plate",
-            "front_right_post": "base_plate",
-            "rear_left_post": "base_plate",
-            "rear_right_post": "base_plate",
-            "top_plate": "base_plate",
-            "lower_shelf": "base_plate",
-        },
-        local_transforms={
-            "front_left_post": [
-                [1.0, 0.0, 0.0, -78.0],
-                [0.0, 1.0, 0.0, -48.0],
-                [0.0, 0.0, 1.0, 10.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "front_right_post": [
-                [1.0, 0.0, 0.0, 78.0],
-                [0.0, 1.0, 0.0, -48.0],
-                [0.0, 0.0, 1.0, 10.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "rear_left_post": [
-                [1.0, 0.0, 0.0, -78.0],
-                [0.0, 1.0, 0.0, 48.0],
-                [0.0, 0.0, 1.0, 10.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "rear_right_post": [
-                [1.0, 0.0, 0.0, 78.0],
-                [0.0, 1.0, 0.0, 48.0],
-                [0.0, 0.0, 1.0, 10.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "top_plate": [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 90.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            "lower_shelf": [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 42.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-        },
-        name="storage_rack_assembly",
-    )
-
-    result = scad.solve_assembly_rresult(assembly)
-    script_path = OUTPUT_DIR / "test_declarative_assembly_export.fcstd.py"
-    export_assembly_result_to_freecad_script(assembly, str(script_path))
-
-    if script_path not in generated_script_paths:
-        generated_script_paths.append(script_path)
-
-    script_preview = generate_freecad_assembly_script(assembly)
-    if "Assembly imported successfully" not in script_preview:
-        raise AssertionError("Assembly FreeCAD script generation failed")
-
-    assert_script_contains(
-        script_path,
-        [
-            "# Assembly Part: base_plate",
-            "# Assembly Part: front_left_post",
-            "# Assembly Part: front_right_post",
-            "# Assembly Part: rear_left_post",
-            "# Assembly Part: rear_right_post",
-            "# Assembly Part: top_plate",
-            "# Assembly Part: lower_shelf",
-            "App::Part",
-            ".addObject(",
-            ".Placement = App.Placement(App.Matrix(",
-            "importBrepFromString",
-            "Part::Feature",
-            "Assembly imported successfully with 7 parts",
-        ],
-    )
 
     print(f"  assembly converged: {result.report.converged}")
-    print(f"  connected parts: {len(result.part_names())}")
-    print(f"  Assembly FreeCAD script: {script_path}")
+    print(f"  assembly part count: {len(result.part_names())}")
+
+    history, json_path, script_path, _ = export_history_bundle("test_assembly_feature_export")
+
+    assert_feature_operations(
+        json_path,
+        [
+            "make_box",
+            "make_cylinder",
+            "make_assembly",
+            "translate_part",
+            "rotate_part",
+            "constrain_offset",
+            "solve_assembly",
+        ],
+    )
+    assert_script_contains(
+        script_path,
+        [
+            "# Assembly Step: make_assembly",
+            "# Assembly Step: translate_part",
+            "# Assembly Step: rotate_part",
+            "# Assembly Step: constrain_offset",
+            "# Solve Assembly:",
+            "# Assembly Part: base",
+            "# Assembly Part: arm",
+            "# Assembly Part: pin",
+            "importBrepFromString",
+        ],
+    )
+
+    print_export_summary(history, json_path, script_path)
 
 
 def test_generation_pattern_export_v2() -> None:
@@ -861,69 +812,73 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         "Part::Fuse",
         "Part::Cut",
     ],
-    "test_declarative_assembly_export.fcstd.py": [
-        "# Assembly Part: base_plate",
-        "# Assembly Part: front_left_post",
-        "# Assembly Part: front_right_post",
-        "# Assembly Part: rear_left_post",
-        "# Assembly Part: rear_right_post",
-        "# Assembly Part: top_plate",
-        "# Assembly Part: lower_shelf",
-        "App::Part",
-        ".addObject(",
-        ".Placement = App.Placement(App.Matrix(",
+    "test_scalarfield_feature_export.fcstd.py": [
+        "# Scalar Field:",
+        "make_sphere_field",
+        "smooth_union_field",
+        "scale_field",
+        "# Field Surface:",
         "importBrepFromString",
-        "Part::Feature",
-        "Assembly imported successfully with 7 parts",
+    ],
+    "test_assembly_feature_export.fcstd.py": [
+        "# Assembly Step: make_assembly",
+        "# Assembly Step: translate_part",
+        "# Assembly Step: rotate_part",
+        "# Assembly Step: constrain_offset",
+        "# Solve Assembly:",
+        "# Assembly Part: base",
+        "# Assembly Part: arm",
+        "# Assembly Part: pin",
+        "importBrepFromString",
     ],
 }
 
 
 def validate_freecad_script_outputs() -> bool:
-    print("\n【FreeCAD 脚本验证】")
+    print("\n[FreeCAD Script Validation]")
 
     validation_errors: list[str] = []
     script_files = list(generated_script_paths)
-    print(f"  找到 {len(script_files)} 个脚本文件")
+    print(f"  Found {len(script_files)} script files")
 
     for script_file in script_files:
-        print(f"\n  检查: {script_file.name}")
+        print(f"\n  Checking: {script_file.name}")
 
         with open(script_file, "r", encoding="utf-8") as f:
             script_content = f.read()
 
         if "import FreeCAD" not in script_content:
-            validation_errors.append(f"{script_file.name}: 缺少 FreeCAD 导入")
-            print("    ✗ 缺少 FreeCAD 导入")
+            validation_errors.append(f"{script_file.name}: missing FreeCAD import")
+            print("    Missing FreeCAD import")
         else:
-            print("    ✓ 包含 FreeCAD 导入")
+            print("    Includes FreeCAD import")
 
         if "import Part" not in script_content:
-            validation_errors.append(f"{script_file.name}: 缺少 Part 导入")
-            print("    ✗ 缺少 Part 导入")
+            validation_errors.append(f"{script_file.name}: missing Part import")
+            print("    Missing Part import")
         else:
-            print("    ✓ 包含 Part 导入")
+            print("    Includes Part import")
 
         if "doc.recompute()" not in script_content:
-            validation_errors.append(f"{script_file.name}: 缺少 doc.recompute()")
-            print("    ✗ 缺少 doc.recompute()")
+            validation_errors.append(f"{script_file.name}: missing doc.recompute()")
+            print("    Missing doc.recompute()")
         else:
-            print("    ✓ 包含 doc.recompute()")
+            print("    Includes doc.recompute()")
 
         if ".Length =" in script_content and ".LengthFwd =" not in script_content:
             if "Part::Extrusion" in script_content:
-                validation_errors.append(f"{script_file.name}: 可能存在 Length 属性问题")
-                print("    ! 警告: 可能存在 Length 属性问题")
+                validation_errors.append(f"{script_file.name}: possible Length property issue")
+                print("    Warning: possible Length property issue")
             else:
-                print("    ✓ Length 使用在正确的对象上")
+                print("    Length is used on the correct object type")
         else:
-            print("    ✓ Length 属性使用正确")
+            print("    Length usage looks correct")
 
         base_not_found_count = script_content.count("Base object not found")
         if base_not_found_count > 0:
-            print(f"    ! 警告: {base_not_found_count} 个 'Base object not found'")
+            print(f"    Warning: found {base_not_found_count} 'Base object not found' messages")
         else:
-            print("    ✓ 没有 Base object not found 警告")
+            print("    No 'Base object not found' warnings")
 
         required_fragments = SCRIPT_SPECIFIC_FRAGMENTS.get(script_file.name, [])
         if required_fragments:
@@ -932,56 +887,57 @@ def validate_freecad_script_outputs() -> bool:
             ]
             if missing_fragments:
                 validation_errors.append(
-                    f"{script_file.name}: 缺少脚本片段 {', '.join(missing_fragments)}"
+                    f"{script_file.name}: missing script fragments {', '.join(missing_fragments)}"
                 )
-                print(f"    ✗ 缺少脚本片段: {', '.join(missing_fragments)}")
+                print(f"    Missing script fragments: {', '.join(missing_fragments)}")
             else:
-                print("    ✓ 包含专项导出片段")
+                print("    Includes expected export fragments")
 
-        print(f"    统计: {len(script_content.splitlines())} 行")
+        print(f"    Line count: {len(script_content.splitlines())}")
 
     print("\n" + "=" * 80)
-    print("FreeCAD 脚本验证总结")
+    print("FreeCAD Script Validation Summary")
     print("=" * 80)
 
     if validation_errors:
-        print(f"\n✗ 发现 {len(validation_errors)} 个问题")
+        print(f"\nFound {len(validation_errors)} validation issues")
         for index, error in enumerate(validation_errors, 1):
             print(f"  {index}. {error}")
         return False
 
-    print("\n✓ 所有脚本验证通过！")
-    print(f"  - 检查了 {len(script_files)} 个脚本文件")
-    print("  - 所有脚本都包含必要的导入和调用")
+    print("\nAll script validations passed")
+    print(f"  - Checked {len(script_files)} script files")
+    print("  - All scripts include the required imports and calls")
     return True
 
 
 def print_final_summary(script_validation_passed: bool) -> None:
     print("\n" + "=" * 80)
-    print("测试完成总结")
+    print("Test Summary")
     print("=" * 80)
 
-    print(f"\n总测试数: {len(test_results)}")
-    print(f"通过: {sum(1 for item in test_results if item['status'] == 'PASS')}")
-    print(f"失败: {sum(1 for item in test_results if item['status'] == 'FAIL')}")
-    print(f"脚本验证: {'通过' if script_validation_passed else '未通过'}")
+    print(f"\nTotal tests: {len(test_results)}")
+    print(f"Passed: {sum(1 for item in test_results if item['status'] == 'PASS')}")
+    print(f"Failed: {sum(1 for item in test_results if item['status'] == 'FAIL')}")
+    print(f"Script validation: {'passed' if script_validation_passed else 'failed'}")
 
-    print(f"\n生成的文件 ({OUTPUT_DIR}):")
+    print(f"\nGenerated files ({OUTPUT_DIR}):")
     for file in sorted(OUTPUT_DIR.iterdir()):
         size = file.stat().st_size
         print(f"  - {file.name:<45} ({size:>8,} bytes)")
 
-    print(f"\n结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nEnd time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
 
 
 def main() -> int:
     tests: list[tuple[str, Callable[[], None]]] = [
-        ("创建类特征导出", test_creation_feature_export),
-        ("高级建模特征导出", test_advanced_feature_export),
-        ("生成和阵列特征导出", test_generation_pattern_export_v2),
-        ("布尔特征导出", test_boolean_feature_export_v2),
-        ("连接装配脚本导出", test_connected_assembly_export),
+        ("Creation feature export", test_creation_feature_export),
+        ("Advanced feature export", test_advanced_feature_export),
+        ("Generation and pattern export", test_generation_pattern_export_v2),
+        ("Boolean feature export", test_boolean_feature_export_v2),
+        ("Scalar field feature export", test_scalarfield_history_export),
+        ("Assembly history export", test_assembly_history_export),
     ]
 
     for test_name, test_func in tests:
@@ -991,10 +947,10 @@ def main() -> int:
     print_final_summary(script_validation_passed)
 
     if all_tests_passed and script_validation_passed:
-        print("\n✓ 所有测试通过！")
+        print("\nAll tests passed")
         return 0
 
-    print("\n✗ 部分测试失败")
+    print("\nSome tests failed")
     return 1
 
 

@@ -162,6 +162,28 @@ class Feature:
         except Exception:
             pass
 
+        if hasattr(self.output, "op") and hasattr(self.output, "params"):
+            output_data["op"] = getattr(self.output, "op", None)
+            output_data["params"] = getattr(self.output, "params", None)
+            children = getattr(self.output, "children", ())
+            output_data["child_count"] = len(children) if children is not None else 0
+
+        if hasattr(self.output, "part_names"):
+            try:
+                output_data["part_names"] = list(self.output.part_names())
+            except Exception:
+                pass
+            report = getattr(self.output, "report", None)
+            if report is not None:
+                output_data["report"] = {
+                    "converged": getattr(report, "converged", None),
+                    "iterations": getattr(report, "iterations", None),
+                    "max_delta": getattr(report, "max_delta", None),
+                }
+
+        if hasattr(self.output, "_parts") and hasattr(self.output, "_order"):
+            output_data["part_names"] = list(getattr(self.output, "_order", []))
+
         return output_data
 
     def to_dict(self, include_geometry: bool = False) -> Dict[str, Any]:
@@ -191,8 +213,9 @@ class Feature:
         """Serialize input references."""
         refs = []
         for inp in self.inputs:
-            if hasattr(inp, '_feature_id'):
-                refs.append(inp._feature_id)
+            feature_id = get_registered_feature_id(inp)
+            if feature_id:
+                refs.append(feature_id)
             elif hasattr(inp, 'feature_id'):
                 refs.append(inp.feature_id)
             else:
@@ -277,9 +300,7 @@ class FeatureHistory:
         # 设置输出
         if output is not None:
             feature.set_output(output)
-            # 在输出对象上保存特征ID引用
-            if hasattr(output, '_feature_id'):
-                output._feature_id = feature.feature_id
+            bind_feature_output(output, feature)
         
         # 建立依赖关系
         if parent_ids:
@@ -453,6 +474,55 @@ class FeatureHistory:
 
 # Global feature history registry for tracking across operations
 _global_history: Optional[FeatureHistory] = None
+_output_feature_refs: Dict[int, str] = {}
+
+
+def register_feature_output(output: Any, feature_id: str) -> None:
+    """Register a feature id for outputs that cannot store attributes directly."""
+    if output is None:
+        return
+    _output_feature_refs[id(output)] = feature_id
+
+
+def get_registered_feature_id(output: Any) -> Optional[str]:
+    """Resolve a feature id from direct attributes or the global registry."""
+    if output is None:
+        return None
+
+    feature = getattr(output, "_feature", None)
+    feature_id = getattr(feature, "feature_id", None)
+    if feature_id:
+        return feature_id
+
+    feature_id = getattr(output, "_feature_id", None)
+    if feature_id:
+        return feature_id
+
+    return _output_feature_refs.get(id(output))
+
+
+def bind_feature_output(output: Any, feature: Feature) -> None:
+    """Bind a feature object to an output where possible and always register it."""
+    if output is None:
+        return
+
+    if hasattr(output, "set_feature"):
+        try:
+            output.set_feature(feature)
+        except Exception:
+            pass
+
+    try:
+        setattr(output, "_feature", feature)
+    except Exception:
+        pass
+
+    try:
+        setattr(output, "_feature_id", feature.feature_id)
+    except Exception:
+        pass
+
+    register_feature_output(output, feature.feature_id)
 
 
 def get_global_history() -> Optional[FeatureHistory]:
@@ -464,11 +534,14 @@ def set_global_history(history: Optional[FeatureHistory]) -> None:
     """Set the global feature history instance."""
     global _global_history
     _global_history = history
+    if history is None:
+        _output_feature_refs.clear()
 
 
 def create_new_history(name: str = "New Model") -> FeatureHistory:
     """Create and set a new global feature history."""
     history = FeatureHistory(name=name)
+    _output_feature_refs.clear()
     set_global_history(history)
     return history
 
