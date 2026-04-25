@@ -1843,6 +1843,62 @@ def _find_edge_indices(base_solid: Solid, selected_edges: List[Edge]) -> List[in
     return indices
 
 
+def _point_tuple(point: Any) -> Tuple[float, float, float]:
+    """Convert a CadQuery/OCC vector-like object to a serializable point tuple."""
+    return (float(point.x), float(point.y), float(point.z))
+
+
+def _edge_signature(edge: Edge) -> Dict[str, Any]:
+    """Create a geometry-based edge selector for CAD script replay.
+
+    Topological edge indices are not stable after replaying booleans in another
+    kernel/session.  The signature gives exporters a more robust way to find
+    the intended edge while keeping the modifier feature in the history tree.
+    """
+    cq_edge = edge.cq_edge
+    signature: Dict[str, Any] = {
+        "length": float(cq_edge.Length()),
+    }
+
+    try:
+        signature["center"] = _point_tuple(cq_edge.Center())
+    except Exception:
+        pass
+
+    try:
+        signature["geom_type"] = str(cq_edge.geomType())
+    except Exception:
+        pass
+
+    try:
+        vertices = cq_edge.Vertices()
+        if len(vertices) >= 2:
+            signature["start"] = _point_tuple(vertices[0].Center())
+            signature["end"] = _point_tuple(vertices[-1].Center())
+    except Exception:
+        pass
+
+    try:
+        bbox = cq_edge.BoundingBox()
+        signature["bbox"] = [
+            float(bbox.xmin),
+            float(bbox.ymin),
+            float(bbox.zmin),
+            float(bbox.xmax),
+            float(bbox.ymax),
+            float(bbox.zmax),
+        ]
+    except Exception:
+        pass
+
+    return signature
+
+
+def _edge_signatures(edges: List[Edge]) -> List[Dict[str, Any]]:
+    """Create geometry-based selectors for a list of edges."""
+    return [_edge_signature(edge) for edge in edges]
+
+
 def _find_face_indices(base_solid: Solid, selected_faces: List[Face]) -> List[int]:
     """Map selected face objects back to face indices on the base solid."""
     base_faces = base_solid.get_faces()
@@ -3257,6 +3313,7 @@ def fillet_rsolid(solid: Solid, edges: List[Edge], radius: float) -> Solid:
             parameters={
                 "radius": radius,
                 "edge_indices": _find_edge_indices(solid, edges),
+                "edge_signatures": _edge_signatures(edges),
             },
             feature_type=FeatureType.FILLET,
         )
@@ -3289,6 +3346,7 @@ def chamfer_rsolid(solid: Solid, edges: List[Edge], distance: float) -> Solid:
             parameters={
                 "distance": distance,
                 "edge_indices": _find_edge_indices(solid, edges),
+                "edge_signatures": _edge_signatures(edges),
             },
             feature_type=FeatureType.CHAMFER,
         )

@@ -311,6 +311,8 @@ class FeatureExporter:
             lines.extend(self._generate_freecad_scalar_helpers())
         if self._history_uses_assembly_features():
             lines.extend(self._generate_freecad_assembly_helpers())
+        if self._history_uses_edge_modifier_features():
+            lines.extend(self._generate_freecad_edge_modifier_helpers())
 
         # Track created objects for dependencies
         created_objects = {}
@@ -478,11 +480,9 @@ class FeatureExporter:
             for parent_id in (getattr(feature, "parent_features", None) or []):
                 terminal_feature_ids.discard(parent_id)
 
-        if len(terminal_feature_ids) == 1:
-            final_feature_id = next(iter(terminal_feature_ids))
-            final_result_object_name = created_objects.get(final_feature_id)
+        if terminal_feature_ids:
             lines.extend([
-                "# Keep feature containers visible in the tree, but show only terminal geometry by default",
+                "# Keep the full feature tree, but only show terminal geometry in the 3D view",
             ])
             for feature_id in self.history.ordered_features:
                 tree_object_name = tree_objects.get(feature_id)
@@ -495,17 +495,16 @@ class FeatureExporter:
                         f"    {tree_object_name}.ViewObject.Visibility = True",
                     ])
                 if result_object_name:
-                    visible = feature_id == final_feature_id
+                    visible = feature_id in terminal_feature_ids
                     lines.extend([
                         f"if hasattr({result_object_name}, 'ViewObject') and hasattr({result_object_name}.ViewObject, 'Visibility'):",
                         f"    {result_object_name}.ViewObject.Visibility = {str(visible)}",
                     ])
-            if final_result_object_name:
-                lines.extend([
-                    "# Keep the terminal solid opaque and let FreeCAD use its default display mode",
-                    f"if hasattr({final_result_object_name}, 'ViewObject') and hasattr({final_result_object_name}.ViewObject, 'Transparency'):",
-                    f"    {final_result_object_name}.ViewObject.Transparency = 0",
-                ])
+                    if visible:
+                        lines.extend([
+                            f"if hasattr({result_object_name}, 'ViewObject') and hasattr({result_object_name}.ViewObject, 'Transparency'):",
+                            f"    {result_object_name}.ViewObject.Transparency = 0",
+                        ])
             lines.append("")
 
         # Add final recompute
@@ -528,6 +527,12 @@ class FeatureExporter:
     def _history_uses_scalar_fields(self) -> bool:
         return any(
             feature.operation.endswith("_field")
+            for feature in self.history.features.values()
+        )
+
+    def _history_uses_edge_modifier_features(self) -> bool:
+        return any(
+            feature.operation in {"fillet", "chamfer"}
             for feature in self.history.features.values()
         )
 
@@ -683,6 +688,66 @@ class FeatureExporter:
             "            'bounds': deepcopy(bounds),",
             "        },",
             "    )",
+            "",
+        ]
+
+    def _generate_freecad_edge_modifier_helpers(self) -> List[str]:
+        return [
+            "# Helpers for robust fillet/chamfer replay",
+            "def _scad_vec(values):",
+            "    return App.Vector(float(values[0]), float(values[1]), float(values[2]))",
+            "",
+            "def _scad_shape_from_brep_string(brep_data):",
+            "    if not brep_data:",
+            "        return None",
+            "    shape = Part.Shape()",
+            "    try:",
+            "        shape.importBrepFromString(brep_data)",
+            "        return shape",
+            "    except Exception as exc:",
+            "        print('Warning: could not import BREP fallback:', exc)",
+            "        return None",
+            "",
+            "def _scad_edge_score(edge, signature):",
+            "    score = 0.0",
+            "    if 'length' in signature:",
+            "        score += abs(float(edge.Length) - float(signature['length']))",
+            "    if 'center' in signature:",
+            "        score += (edge.CenterOfMass - _scad_vec(signature['center'])).Length",
+            "    if 'bbox' in signature:",
+            "        bbox = edge.BoundBox",
+            "        edge_bbox = [bbox.XMin, bbox.YMin, bbox.ZMin, bbox.XMax, bbox.YMax, bbox.ZMax]",
+            "        score += sum(abs(float(a) - float(b)) for a, b in zip(edge_bbox, signature['bbox']))",
+            "    if 'start' in signature and 'end' in signature and len(edge.Vertexes) >= 2:",
+            "        s = _scad_vec(signature['start'])",
+            "        e = _scad_vec(signature['end'])",
+            "        v0 = edge.Vertexes[0].Point",
+            "        v1 = edge.Vertexes[-1].Point",
+            "        forward = (v0 - s).Length + (v1 - e).Length",
+            "        reverse = (v0 - e).Length + (v1 - s).Length",
+            "        score += min(forward, reverse)",
+            "    return score",
+            "",
+            "def _scad_match_edges_by_signature(shape, signatures, fallback_indices=None):",
+            "    edges = list(shape.Edges)",
+            "    matched = []",
+            "    used = set()",
+            "    for signature in signatures or []:",
+            "        best_index = None",
+            "        best_score = None",
+            "        for index, edge in enumerate(edges):",
+            "            if index in used:",
+            "                continue",
+            "            score = _scad_edge_score(edge, signature)",
+            "            if best_score is None or score < best_score:",
+            "                best_index = index",
+            "                best_score = score",
+            "        if best_index is not None:",
+            "            used.add(best_index)",
+            "            matched.append(edges[best_index])",
+            "    if matched:",
+            "        return matched",
+            "    return [edges[i] for i in (fallback_indices or []) if 0 <= i < len(edges)]",
             "",
         ]
 
@@ -933,6 +998,15 @@ class FeatureExporter:
         
         return None, None
 
+    def _get_parent_object_name_list(self, feature, created_objects: dict) -> List[str]:
+        parent_ids = getattr(feature, "parent_features", None) or []
+        names: List[str] = []
+        for parent_id in parent_ids:
+            obj_name = created_objects.get(parent_id)
+            if obj_name and obj_name not in names:
+                names.append(obj_name)
+        return names
+
     def _generate_freecad_extrude(self, feature, obj_name: str, created_objects: dict) -> List[str]:
         """Generate FreeCAD code for extrude operation."""
         direction = self._get_param_value(feature, 'direction', (0, 0, 1))
@@ -987,6 +1061,16 @@ class FeatureExporter:
             'boolean_intersect': 'Part::Common',
         }
         fc_type = bool_type_map.get(feature.operation, 'Part::Fuse')
+        parent_objects = self._get_parent_object_name_list(feature, created_objects)
+
+        if feature.operation == "boolean_union" and len(parent_objects) > 2:
+            lines = [
+                f"# Boolean {feature.operation}: {feature.name}",
+                f"{obj_name} = doc.addObject('Part::MultiFuse', '{obj_name}')",
+                f"{obj_name}.Shapes = [{', '.join(parent_objects)}]",
+                "",
+            ]
+            return lines
 
         lines = [
             f"# Boolean {feature.operation}: {feature.name}",
@@ -1295,6 +1379,8 @@ class FeatureExporter:
         """Generate FreeCAD code for fillet operation."""
         radius = self._get_param_value(feature, 'radius', 1.0)
         edge_indices = self._get_param_value(feature, 'edge_indices', [])
+        edge_signatures = self._get_param_value(feature, 'edge_signatures', [])
+        brep = self._extract_output_brep(feature)
 
         lines = [
             f"# Fillet: {feature.name}",
@@ -1305,8 +1391,20 @@ class FeatureExporter:
             lines.extend([
                 f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
                 f"{obj_name}_edge_indices = {self._list_expr(edge_indices)}",
-                f"{obj_name}_edges = [{base_obj}.Shape.Edges[i] for i in {obj_name}_edge_indices]",
-                f"{obj_name}.Shape = {base_obj}.Shape.makeFillet({radius}, {obj_name}_edges)",
+                f"{obj_name}_edge_signatures = {self._list_expr(edge_signatures)}",
+                f"{obj_name}_brep_fallback = {repr(brep)}",
+                "try:",
+                f"    {obj_name}_edges = _scad_match_edges_by_signature({base_obj}.Shape, {obj_name}_edge_signatures, {obj_name}_edge_indices)",
+                f"    if not {obj_name}_edges:",
+                "        raise ValueError('no fillet edges matched')",
+                f"    {obj_name}.Shape = {base_obj}.Shape.makeFillet({radius}, {obj_name}_edges)",
+                "except Exception as exc:",
+                f"    print('Warning: FreeCAD fillet replay failed for {obj_name}; using BREP fallback:', exc)",
+                f"    {obj_name}_fallback_shape = _scad_shape_from_brep_string({obj_name}_brep_fallback)",
+                f"    if {obj_name}_fallback_shape is not None:",
+                f"        {obj_name}.Shape = {obj_name}_fallback_shape",
+                "    else:",
+                f"        {obj_name}.Shape = {base_obj}.Shape.copy()",
             ])
         else:
             lines.append(f"# Warning: Base object not found for fillet")
@@ -1318,6 +1416,8 @@ class FeatureExporter:
         """Generate FreeCAD code for chamfer operation."""
         distance = self._get_param_value(feature, 'distance', 1.0)
         edge_indices = self._get_param_value(feature, 'edge_indices', [])
+        edge_signatures = self._get_param_value(feature, 'edge_signatures', [])
+        brep = self._extract_output_brep(feature)
 
         lines = [
             f"# Chamfer: {feature.name}",
@@ -1328,8 +1428,20 @@ class FeatureExporter:
             lines.extend([
                 f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
                 f"{obj_name}_edge_indices = {self._list_expr(edge_indices)}",
-                f"{obj_name}_edges = [{base_obj}.Shape.Edges[i] for i in {obj_name}_edge_indices]",
-                f"{obj_name}.Shape = {base_obj}.Shape.makeChamfer({distance}, {obj_name}_edges)",
+                f"{obj_name}_edge_signatures = {self._list_expr(edge_signatures)}",
+                f"{obj_name}_brep_fallback = {repr(brep)}",
+                "try:",
+                f"    {obj_name}_edges = _scad_match_edges_by_signature({base_obj}.Shape, {obj_name}_edge_signatures, {obj_name}_edge_indices)",
+                f"    if not {obj_name}_edges:",
+                "        raise ValueError('no chamfer edges matched')",
+                f"    {obj_name}.Shape = {base_obj}.Shape.makeChamfer({distance}, {obj_name}_edges)",
+                "except Exception as exc:",
+                f"    print('Warning: FreeCAD chamfer replay failed for {obj_name}; using BREP fallback:', exc)",
+                f"    {obj_name}_fallback_shape = _scad_shape_from_brep_string({obj_name}_brep_fallback)",
+                f"    if {obj_name}_fallback_shape is not None:",
+                f"        {obj_name}.Shape = {obj_name}_fallback_shape",
+                "    else:",
+                f"        {obj_name}.Shape = {base_obj}.Shape.copy()",
             ])
         else:
             lines.append(f"# Warning: Base object not found for chamfer")
