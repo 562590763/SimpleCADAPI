@@ -2901,21 +2901,21 @@ def render_screenshot_rpath(
             def _axis_solid(axis: Tuple[float, float, float], length: float) -> Solid:
                 shaft_len = length * (1.0 - head_len_factor)
                 head_len = length * head_len_factor
-                shaft = make_cylinder_rsolid(
+                axis_vec = Vector(*axis)
+                shaft = cq.Solid.makeCylinder(
                     axis_radius,
                     shaft_len,
-                    bottom_face_center=(0.0, 0.0, 0.0),
-                    axis=axis,
+                    Vector(0.0, 0.0, 0.0),
+                    axis_vec,
                 )
-                cone = make_cone_rsolid(
+                cone = cq.Solid.makeCone(
                     head_radius,
-                    head_len,
                     0.0,
-                    bottom_face_center=tuple(np.array(axis) * shaft_len),
-                    axis=axis,
+                    head_len,
+                    Vector(*(np.array(axis) * shaft_len)),
+                    axis_vec,
                 )
-                merged = union_rsolidlist(shaft, cone)[0]
-                return merged
+                return Solid(shaft.fuse(cone, glue=True, tol=1e-7).clean())
 
             axis_x = _axis_solid((1.0, 0.0, 0.0), axis_len_x)
             axis_y = _axis_solid((0.0, 1.0, 0.0), axis_len_y)

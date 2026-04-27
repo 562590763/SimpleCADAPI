@@ -1326,6 +1326,34 @@ class TestFeatureHistory(unittest.TestCase):
                 self.assertIsNotNone(feat.name)
                 self.assertIsNotNone(feat.feature_type)
 
+    def test_11b_render_screenshot_does_not_change_feature_tree(self):
+        """Test screenshot rendering does not add temporary render geometry to history."""
+        import tempfile
+        from pathlib import Path
+
+        import pytest
+        pytest.importorskip("matplotlib")
+
+        import simplecadapi as scad
+        from simplecadapi import create_new_history, get_global_history
+
+        create_new_history("Screenshot side-effect test")
+        box = scad.make_box_rsolid(10, 20, 30)
+
+        history = get_global_history()
+        self.assertIsNotNone(history)
+        feature_count = len(history.features)
+        tree = history.get_feature_tree()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "screenshot.png"
+            scad.render_screenshot_rpath(box, str(output_path), show_axes=True)
+
+            self.assertTrue(output_path.exists())
+
+        self.assertEqual(len(history.features), feature_count)
+        self.assertEqual(history.get_feature_tree(), tree)
+
     def test_12_freecad_script_generation(self):
         """Test FreeCAD script generation from feature history."""
         import simplecadapi as scad
