@@ -11,13 +11,3 @@ def union_rscalarfield(*fields: ScalarField) -> ScalarField
 ## Description
 
 Create a union scalar field.
-
-## Parameters
-
-### *fields
-
-- **Description**: Input scalar fields.
-
-## Returns
-
-ScalarField: Union scalar field.

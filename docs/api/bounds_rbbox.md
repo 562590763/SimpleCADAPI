@@ -11,13 +11,3 @@ def bounds_rbbox(field: ScalarField) -> Tuple[Tuple[float, float, float], Tuple[
 ## Description
 
 Compute the axis-aligned bounding box of a scalar field.
-
-## Parameters
-
-### field
-
-- **Description**: Scalar field.
-
-## Returns
-
-Tuple[min_xyz, max_xyz]: Bounding box.

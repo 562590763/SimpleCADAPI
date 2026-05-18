@@ -8,6 +8,8 @@ This script focuses on grouped export scenarios instead of one-test-per-feature:
 4. Boolean composition flow: transforms + chained boolean modeling
 5. Scalar-field flow: field graph + field-surface export
 6. Hierarchical assembly flow: parent-child parts + solved placements
+7. Assembly constraints flow: solved geometric constraints
+8. QL selection flow: exportable topology/list selections and lambda snapshots
 
 Run with:
     uv run python test/test_feature_export.py
@@ -317,160 +319,7 @@ def test_advanced_feature_export() -> None:
 
 
 # =============================================================================
-# Test 3: Extended Feature Export
-# =============================================================================
-def test_generation_pattern_export() -> None:
-    create_new_history("Extended feature export test")
-
-    intersect_a = scad.make_box_rsolid(40, 40, 40)
-    intersect_b = scad.make_box_rsolid(40, 40, 40, bottom_face_center=(15, 15, 10))
-    intersect_result = scad.intersect_rsolidlist(intersect_a, intersect_b)
-    if not intersect_result:
-        raise AssertionError("intersect_rsolidlist did not produce a result")
-
-    loft_bottom = scad.make_circle_rwire(center=(0, 0, 0), radius=12)
-    loft_top = scad.make_circle_rwire(center=(0, 0, 30), radius=6)
-    lofted = scad.loft_rsolid([loft_bottom, loft_top])
-
-    sweep_profile = scad.make_circle_rface(center=(0, 0, 0), radius=4)
-    sweep_path = scad.make_segment_rwire((0, 0, 0), (0, 0, 45))
-    swept = scad.sweep_rsolid(sweep_profile, sweep_path, is_frenet=False)
-
-    helix_profile = scad.make_circle_rwire(center=(18, 0, 0), radius=2.5)
-    helical = scad.helical_sweep_rsolid(
-        helix_profile,
-        pitch=8,
-        height=24,
-        radius=18,
-    )
-
-    pattern_seed = scad.make_box_rsolid(8, 6, 4)
-    linear_pattern = scad.linear_pattern_rsolidlist(
-        pattern_seed,
-        direction=(1, 0, 0),
-        count=3,
-        spacing=14,
-    )
-    radial_pattern = scad.radial_pattern_rsolidlist(
-        pattern_seed,
-        center=(0, 0, 0),
-        axis=(0, 0, 1),
-        count=4,
-        total_rotation_angle=360,
-    )
-
-    print(f"  Intersect volume: {intersect_result[0].get_volume():.2f}")
-    print(f"  Loft volume: {lofted.get_volume():.2f}")
-    print(f"  Sweep volume: {swept.get_volume():.2f}")
-    print(f"  Helical sweep volume: {helical.get_volume():.2f}")
-    print(f"  Linear pattern count: {len(linear_pattern)}")
-    print(f"  Radial pattern count: {len(radial_pattern)}")
-
-    history, json_path, script_path, geometry_json_path = export_history_bundle(
-        "test_extended_feature_export",
-        include_geometry_json=True,
-    )
-
-    assert_feature_operations(
-        json_path,
-        [
-            "boolean_intersect",
-            "loft",
-            "sweep",
-            "helical_sweep",
-            "linear_pattern",
-            "radial_pattern",
-        ],
-    )
-    assert_script_contains(
-        script_path,
-        [
-            "# Boolean boolean_intersect:",
-            "# Loft:",
-            "# Sweep:",
-            "# Helical Sweep:",
-            "# Linear Pattern:",
-            "# Radial Pattern:",
-            "Part::Loft",
-            ".Sections = [",
-            "Part::Sweep",
-            ".Spine = (",
-            "Part::Helix",
-            "Part.makeLine(",
-            "App::Link",
-        ],
-    )
-
-    if geometry_json_path is None:
-        raise AssertionError("Extended export is missing the geometry JSON file")
-
-    geometry_data = load_json_file(geometry_json_path)
-    if not any("output" in feature for feature in geometry_data.get("features", [])):
-        raise AssertionError("include_geometry=True did not export output data")
-
-    print_export_summary(history, json_path, script_path, geometry_json_path)
-
-
-# =============================================================================
-# Test 4: Boolean Composition Export
-# =============================================================================
-def test_boolean_feature_export() -> None:
-    create_new_history("Boolean composition export test")
-
-    base = scad.make_box_rsolid(200, 150, 20)
-
-    pillar = scad.make_cylinder_rsolid(radius=15, height=80)
-    pillar = scad.translate_shape(pillar, (50, 50, 20))
-
-    beam = scad.make_box_rsolid(120, 30, 25)
-    beam = scad.translate_shape(beam, (-10, 35, 75))
-
-    hole = scad.make_cylinder_rsolid(radius=8, height=30)
-    hole = scad.translate_shape(hole, (100, 75, 70))
-
-    step1 = scad.union_rsolidlist(base, pillar)
-    if not step1:
-        raise AssertionError("Boolean union failed for base and pillar")
-    step2 = scad.union_rsolidlist(step1[0], beam)
-    if not step2:
-        raise AssertionError("Boolean union failed for step1 and beam")
-    final_result = scad.cut_rsolidlist(step2[0], hole)
-    if not final_result:
-        raise AssertionError("Final boolean cut failed")
-
-    print(f"  Base volume: {base.get_volume():.2f}")
-    print(f"  Pillar volume: {pillar.get_volume():.2f}")
-    print(f"  Beam volume: {beam.get_volume():.2f}")
-    print(f"  Base + pillar volume: {step1[0].get_volume():.2f}")
-    print(f"  Base + pillar + beam volume: {step2[0].get_volume():.2f}")
-    print(f"  Final cut volume: {final_result[0].get_volume():.2f}")
-
-    history, json_path, script_path, _ = export_history_bundle("test_boolean_composition_export")
-
-    assert_feature_operations(
-        json_path,
-        [
-            "make_box",
-            "make_cylinder",
-            "translate_shape",
-            "boolean_union",
-            "boolean_cut",
-        ],
-    )
-    assert_script_contains(
-        script_path,
-        [
-            "# Translate:",
-            "# Boolean boolean_union:",
-            "# Boolean boolean_cut:",
-        ],
-    )
-
-    print_export_summary(history, json_path, script_path)
-
-
-# =============================================================================
-# Test 5: Scalar Field History Export
+# Test 3: Scalar Field History Export
 # =============================================================================
 def test_scalarfield_history_export() -> None:
     create_new_history("Scalar field history export test")
@@ -533,6 +382,9 @@ def test_scalarfield_history_export() -> None:
     print_export_summary(history, json_path, script_path, geometry_json_path)
 
 
+# =============================================================================
+# Test 4: Assembly History Export
+# =============================================================================
 def test_assembly_history_export() -> None:
     create_new_history("Assembly history export test")
 
@@ -620,6 +472,9 @@ def test_assembly_history_export() -> None:
     print_export_summary(history, json_path, script_path)
 
 
+# =============================================================================
+# Test 5: Assembly Constraints Export
+# =============================================================================
 def test_assembly_constraints_export() -> None:
     create_new_history("Assembly constraints export test")
 
@@ -711,8 +566,17 @@ def test_assembly_constraints_export() -> None:
     print_export_summary(history, json_path, script_path)
 
 
-def test_generation_pattern_export_v2() -> None:
+# =============================================================================
+# Test 6: Extended Feature Export
+# =============================================================================
+def test_generation_pattern_export() -> None:
     create_new_history("Generation and pattern export test")
+
+    intersect_a = scad.make_box_rsolid(40, 40, 40)
+    intersect_b = scad.make_box_rsolid(40, 40, 40, bottom_face_center=(15, 15, 10))
+    intersect_result = scad.intersect_rsolidlist(intersect_a, intersect_b)
+    if not intersect_result:
+        raise AssertionError("intersect_rsolidlist did not produce a result")
 
     loft_bottom = scad.make_circle_rwire(center=(0, 0, 0), radius=12)
     loft_top = scad.make_circle_rwire(center=(0, 0, 30), radius=6)
@@ -745,11 +609,12 @@ def test_generation_pattern_export_v2() -> None:
         total_rotation_angle=360,
     )
 
-    print(f"  loft volume: {lofted.get_volume():.2f}")
-    print(f"  sweep volume: {swept.get_volume():.2f}")
-    print(f"  helical sweep volume: {helical.get_volume():.2f}")
-    print(f"  linear pattern count: {len(linear_pattern)}")
-    print(f"  radial pattern count: {len(radial_pattern)}")
+    print(f"  Intersect volume: {intersect_result[0].get_volume():.2f}")
+    print(f"  Loft volume: {lofted.get_volume():.2f}")
+    print(f"  Sweep volume: {swept.get_volume():.2f}")
+    print(f"  Helical sweep volume: {helical.get_volume():.2f}")
+    print(f"  Linear pattern count: {len(linear_pattern)}")
+    print(f"  Radial pattern count: {len(radial_pattern)}")
 
     history, json_path, script_path, geometry_json_path = export_history_bundle(
         "test_extended_feature_export",
@@ -759,6 +624,7 @@ def test_generation_pattern_export_v2() -> None:
     assert_feature_operations(
         json_path,
         [
+            "boolean_intersect",
             "loft",
             "sweep",
             "helical_sweep",
@@ -769,6 +635,7 @@ def test_generation_pattern_export_v2() -> None:
     assert_script_contains(
         script_path,
         [
+            "# Boolean boolean_intersect:",
             "# Loft:",
             "# Sweep:",
             "# Helical Sweep:",
@@ -780,6 +647,7 @@ def test_generation_pattern_export_v2() -> None:
             ".Spine = (",
             "Part::Helix",
             "Part.makeLine(",
+            "Part::Common",
             "App::Link",
         ],
     )
@@ -794,7 +662,10 @@ def test_generation_pattern_export_v2() -> None:
     print_export_summary(history, json_path, script_path, geometry_json_path)
 
 
-def test_boolean_feature_export_v2() -> None:
+# =============================================================================
+# Test 7: Boolean Composition Export
+# =============================================================================
+def test_boolean_feature_export() -> None:
     create_new_history("Boolean feature export test")
 
     base = scad.make_box_rsolid(200, 150, 20)
@@ -846,6 +717,87 @@ def test_boolean_feature_export_v2() -> None:
     print_export_summary(history, json_path, script_path)
 
 
+# =============================================================================
+# Test 8: QL Selection Export
+# =============================================================================
+def test_ql_selection_feature_export() -> None:
+    create_new_history("QL selection feature export test")
+
+    base_profile = scad.make_circle_rface((0.0, 0.0, 0.0), 5.0)
+    cylinder = scad.extrude_rsolid(base_profile, (0.0, 0.0, 1.0), 10.0)
+    top_face = scad.ql_select_one(
+        cylinder,
+        "faces",
+        scad.ql.query()
+            .where(scad.ql.tag("extrusion end face"))
+            .take(1)
+            .exactly(1),
+        name="Selected_Extrusion_Top_Face",
+    )
+
+    path = scad.make_helix_rwire(2.0, 18.0, 7.0, center=(0.0, 0.0, 10.0))
+    swept = scad.sweep_rsolid(top_face, path, is_frenet=True)
+
+    small_box = scad.make_box_rsolid(4, 4, 4, bottom_face_center=(30, 0, 0))
+    large_box = scad.make_box_rsolid(8, 8, 8, bottom_face_center=(45, 0, 0))
+    largest_part = scad.ql_select_one_from(
+        [small_box, large_box],
+        scad.ql.query().order_by(scad.ql.geo("volume"), desc=True).take(1).exactly(1),
+        name="Largest_Box_By_Volume",
+    )
+
+    left_plate = scad.make_box_rsolid(10, 5, 2, bottom_face_center=(-30, 0, 0))
+    right_plate = scad.make_box_rsolid(12, 6, 2, bottom_face_center=(-45, 0, 0))
+    largest_face = scad.ql_select_one_from_topology(
+        [(left_plate, "faces"), (right_plate, "faces")],
+        scad.ql.query().order_by(scad.ql.geo("area"), desc=True).take(1).exactly(1),
+        name="Largest_Face_Across_Plates",
+    )
+
+    lambda_edges = scad.ql_select(
+        large_box,
+        "edges",
+        lambda edge: edge.get_length() >= 8.0,
+        name="Runtime_Lambda_Edge_Snapshots",
+    )
+
+    print(f"  QL selected top face tags: {top_face.get_tags()}")
+    print(f"  Sweep from QL face volume: {swept.get_volume():.2f}")
+    print(f"  Largest part volume: {largest_part.get_volume():.2f}")
+    print(f"  Largest face area: {largest_face.get_area():.2f}")
+    print(f"  Lambda edge snapshot count: {len(lambda_edges)}")
+
+    history, json_path, script_path, _ = export_history_bundle("test_ql_selection_export")
+
+    assert_feature_operations(
+        json_path,
+        [
+            "make_circle",
+            "extrude",
+            "ql_select",
+            "sweep",
+            "make_box",
+            "ql_select_from",
+            "ql_select_from_topology",
+        ],
+    )
+    assert_script_contains(
+        script_path,
+        [
+            "# QL Select: Selected_Extrusion_Top_Face",
+            "# QL Select From List: Largest_Box_By_Volume",
+            "# QL Select From Topology: Largest_Face_Across_Plates",
+            "# QL Select: Runtime_Lambda_Edge_Snapshots",
+            "_scad_match_topology_by_signature",
+            ".Sections = [Feature_002_Selected_Extrusion_Top_Face_Result]",
+            "Part.Face(",
+            "Part.Compound([item.Shape",
+        ],
+    )
+
+    print_export_summary(history, json_path, script_path)
+
+
 SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
     "test_creation_feature_export.fcstd.py": [
         "# Box:",
@@ -875,6 +827,7 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         ".makeThickness(",
     ],
     "test_extended_feature_export.fcstd.py": [
+        "# Boolean boolean_intersect:",
         "# Loft:",
         "# Sweep:",
         "# Helical Sweep:",
@@ -886,6 +839,7 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         ".Spine = (",
         "Part::Helix",
         "Part.makeLine(",
+        "Part::Common",
         "App::Link",
     ],
     "test_boolean_composition_export.fcstd.py": [
@@ -896,6 +850,16 @@ SCRIPT_SPECIFIC_FRAGMENTS: dict[str, list[str]] = {
         "Part::Cut",
         "Visibility = True",
         "Visibility = False",
+    ],
+    "test_ql_selection_export.fcstd.py": [
+        "# QL Select: Selected_Extrusion_Top_Face",
+        "# QL Select From List: Largest_Box_By_Volume",
+        "# QL Select From Topology: Largest_Face_Across_Plates",
+        "# QL Select: Runtime_Lambda_Edge_Snapshots",
+        "_scad_match_topology_by_signature",
+        ".Sections = [Feature_002_Selected_Extrusion_Top_Face_Result]",
+        "Part.Face(",
+        "Part.Compound([item.Shape",
     ],
     "test_scalarfield_feature_export.fcstd.py": [
         "# Scalar Field:",
@@ -1043,8 +1007,9 @@ def main() -> int:
     tests: list[tuple[str, Callable[[], None]]] = [
         ("Creation feature export", test_creation_feature_export),
         ("Advanced feature export", test_advanced_feature_export),
-        ("Generation and pattern export", test_generation_pattern_export_v2),
-        ("Boolean feature export", test_boolean_feature_export_v2),
+        ("Generation and pattern export", test_generation_pattern_export),
+        ("Boolean feature export", test_boolean_feature_export),
+        ("QL selection export", test_ql_selection_feature_export),
         ("Scalar field feature export", test_scalarfield_history_export),
         ("Assembly history export", test_assembly_history_export),
         ("Assembly constraints export", test_assembly_constraints_export),

@@ -269,7 +269,7 @@ class APIDocumentGenerator:
                 categories["Transforms"].append(api)
             elif name.startswith(("extrude_", "revolve_", "loft_", "sweep_")):
                 categories["3D Operations"].append(api)
-            elif name.startswith(("set_tag", "select_")):
+            elif name.startswith(("set_tag", "select_", "ql_select")):
                 categories["Tagging and Selection"].append(api)
             elif name.startswith(("union_", "cut_", "intersect_")):
                 categories["Boolean Operations"].append(api)

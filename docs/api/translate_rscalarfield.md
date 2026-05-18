@@ -11,17 +11,3 @@ def translate_rscalarfield(field: ScalarField, offset: Tuple[float, float, float
 ## Description
 
 Translate a scalar field.
-
-## Parameters
-
-### field
-
-- **Description**: Input scalar field.
-
-### offset
-
-- **Description**: Translation vector `(dx, dy, dz)`.
-
-## Returns
-
-ScalarField: Translated scalar field.

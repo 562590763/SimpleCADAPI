@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
 Predicate = Callable[[Any], bool]
@@ -97,11 +97,13 @@ def tag(pattern: str) -> Predicate:
         def _predicate(obj: Any) -> bool:
             return any(tag.startswith(prefix) for tag in _get_tags(obj))
 
+        setattr(_predicate, "_ql_expr", {"op": "tag", "pattern": pattern})
         return _predicate
 
     def _predicate(obj: Any) -> bool:
         return pattern in _get_tags(obj)
 
+    setattr(_predicate, "_ql_expr", {"op": "tag", "pattern": pattern})
     return _predicate
 
 
@@ -153,6 +155,7 @@ def meta(path: str, op: str, value: Any) -> Predicate:
             return False
         raise ValueError(f"unsupported op: {op}")
 
+    setattr(_predicate, "_ql_expr", {"op": "meta", "path": path, "cmp": op, "value": value})
     return _predicate
 
 
@@ -199,6 +202,7 @@ def value(path: str, default: Any = None) -> KeyFn:
                         return default
         return default
 
+    setattr(_getter, "_ql_expr", {"op": "value", "path": path, "default": default})
     return _getter
 
 
@@ -215,7 +219,9 @@ def geo(field: str, default: Any = None) -> KeyFn:
     Usage:
         Q.select(items).order_by(Q.geo("height"))
     """
-    return value(f"geo.{field}", default)
+    getter = value(f"geo.{field}", default)
+    setattr(getter, "_ql_expr", {"op": "geo", "field": field, "default": default})
+    return getter
 
 
 def and_(*predicates: Predicate) -> Predicate:
@@ -237,6 +243,14 @@ def and_(*predicates: Predicate) -> Predicate:
                 return False
         return True
 
+    setattr(
+        _predicate,
+        "_ql_expr",
+        {
+            "op": "and",
+            "children": [getattr(pred, "_ql_expr", None) for pred in predicates],
+        },
+    )
     return _predicate
 
 
@@ -259,6 +273,14 @@ def or_(*predicates: Predicate) -> Predicate:
                 return True
         return False
 
+    setattr(
+        _predicate,
+        "_ql_expr",
+        {
+            "op": "or",
+            "children": [getattr(pred, "_ql_expr", None) for pred in predicates],
+        },
+    )
     return _predicate
 
 
@@ -278,7 +300,87 @@ def not_(predicate: Predicate) -> Predicate:
     def _predicate(obj: Any) -> bool:
         return not predicate(obj)
 
+    setattr(
+        _predicate,
+        "_ql_expr",
+        {"op": "not", "child": getattr(predicate, "_ql_expr", None)},
+    )
     return _predicate
+
+
+class QuerySpec:
+    """Serializable query description that can also run in Python."""
+
+    def __init__(
+        self,
+        predicates: Optional[List[Predicate]] = None,
+        orderings: Optional[List[tuple[KeyFn, bool]]] = None,
+        count: Optional[int] = None,
+        exact_count: Optional[int] = None,
+    ):
+        self._predicates = list(predicates or [])
+        self._orderings = list(orderings or [])
+        self._count = count
+        self._exact_count = exact_count
+
+    def where(self, predicate: Predicate) -> "QuerySpec":
+        return QuerySpec(
+            self._predicates + [predicate],
+            self._orderings,
+            self._count,
+            self._exact_count,
+        )
+
+    def order_by(self, key: KeyFn, desc: bool = False) -> "QuerySpec":
+        return QuerySpec(
+            self._predicates,
+            self._orderings + [(key, desc)],
+            self._count,
+            self._exact_count,
+        )
+
+    def limit(self, count: int) -> "QuerySpec":
+        return QuerySpec(self._predicates, self._orderings, count, self._exact_count)
+
+    def take(self, count: int) -> "QuerySpec":
+        return self.limit(count)
+
+    def exactly(self, count: int) -> "QuerySpec":
+        return QuerySpec(self._predicates, self._orderings, self._count, count)
+
+    def resolve(self, items: Iterable[Any]) -> List[Any]:
+        result = list(items)
+        for predicate in self._predicates:
+            result = [item for item in result if predicate(item)]
+        for key, desc in self._orderings:
+            def _safe_key(obj: Any):
+                value = key(obj)
+                return (value is None, value)
+
+            result = sorted(result, key=_safe_key, reverse=desc)
+        if self._count is not None:
+            result = result[: max(self._count, 0)]
+        if self._exact_count is not None and len(result) != self._exact_count:
+            raise ValueError(
+                f"query expected exactly {self._exact_count} result(s), got {len(result)}"
+            )
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "where": [getattr(pred, "_ql_expr", None) for pred in self._predicates],
+            "order_by": [
+                {"key": getattr(key, "_ql_expr", None), "desc": desc}
+                for key, desc in self._orderings
+            ],
+            "limit": self._count,
+            "exactly": self._exact_count,
+        }
+
+
+def query() -> QuerySpec:
+    """Create a serializable query spec for exportable topology selections."""
+    return QuerySpec()
 
 
 class Query:
@@ -349,7 +451,7 @@ class Query:
 
 
 def select(items: Iterable[Any]) -> Query:
-    """Create a query object.
+    """Create a runtime query object.
 
     Args:
         items: Any iterable.
@@ -359,5 +461,16 @@ def select(items: Iterable[Any]) -> Query:
 
     Usage:
         Q.select(items).where(Q.tag("face.top")).first()
+
+        This helper is for runtime Python filtering. It can query arbitrary
+        iterables and can use custom lambdas, but the selection itself is not
+        recorded as a feature-history node and is not directly replayed during
+        FreeCAD export.
+
+        For CAD selections that must be used by later modeling operations and
+        exported to FreeCAD, use `scad.ql_select`,
+        `scad.ql_select_one`, `scad.ql_select_from`, or
+        `scad.ql_select_from_topology`. Those APIs execute the query in
+        SimpleCAD and export a snapshot of the selected CAD objects.
     """
     return Query(items)

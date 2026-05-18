@@ -2274,6 +2274,476 @@ def select_edges_by_tag(shape: Union[Face, Solid], tag: str) -> List[Edge]:
 # =============================================================================
 
 
+def _topology_items(shape: AnyShape, domain: str) -> List[Any]:
+    """Return topology items for a ql_select domain."""
+    domain = domain.strip().lower()
+    if domain in {"face", "faces"}:
+        if not isinstance(shape, Solid):
+            raise ValueError("faces domain requires a Solid")
+        return list(shape.get_faces())
+    if domain in {"edge", "edges"}:
+        if isinstance(shape, Solid):
+            return list(shape.get_edges())
+        if isinstance(shape, Face):
+            return list(shape.get_outer_wire().get_edges())
+        if isinstance(shape, Wire):
+            return list(shape.get_edges())
+        raise ValueError("edges domain requires a Solid, Face, or Wire")
+    if domain in {"wire", "wires"}:
+        if isinstance(shape, Face):
+            return [shape.get_outer_wire(), *shape.get_inner_wires()]
+        if isinstance(shape, Solid):
+            wires: List[Wire] = []
+            for face in shape.get_faces():
+                wires.append(face.get_outer_wire())
+                wires.extend(face.get_inner_wires())
+            return wires
+        raise ValueError("wires domain requires a Solid or Face")
+    if domain in {"vertex", "vertices"}:
+        vertices: List[Vertex] = []
+        for edge in _topology_items(shape, "edges"):
+            vertices.extend(edge.get_children())
+        return vertices
+    raise ValueError(f"unsupported ql_select domain: {domain}")
+
+
+def _wrapped_shape(item: Any) -> Any:
+    if isinstance(item, Face):
+        return item.cq_face.wrapped
+    if isinstance(item, Edge):
+        return item.cq_edge.wrapped
+    if isinstance(item, Wire):
+        return item.cq_wire.wrapped
+    if isinstance(item, Vertex):
+        return item.cq_vertex.wrapped
+    return None
+
+
+def _shape_index(base_items: List[Any], selected: Any) -> Optional[int]:
+    selected_wrapped = _wrapped_shape(selected)
+    if selected_wrapped is None:
+        return None
+    for index, item in enumerate(base_items):
+        item_wrapped = _wrapped_shape(item)
+        if item_wrapped is not None and item_wrapped.IsSame(selected_wrapped):
+            return index
+    return None
+
+
+def _bbox_signature(shape: Any) -> Optional[List[float]]:
+    try:
+        bbox = shape.BoundingBox()
+        return [
+            float(bbox.xmin),
+            float(bbox.ymin),
+            float(bbox.zmin),
+            float(bbox.xmax),
+            float(bbox.ymax),
+            float(bbox.zmax),
+        ]
+    except Exception:
+        return None
+
+
+def _topology_signature(item: Any) -> Dict[str, Any]:
+    if isinstance(item, Edge):
+        return _edge_signature(item)
+
+    signature: Dict[str, Any] = {}
+    if isinstance(item, Face):
+        cq_face = item.cq_face
+        try:
+            signature["area"] = float(cq_face.Area())
+        except Exception:
+            pass
+        try:
+            signature["center"] = _point_tuple(cq_face.Center())
+        except Exception:
+            pass
+        try:
+            normal = item.get_normal_at()
+            signature["normal"] = _point_tuple(normal)
+        except Exception:
+            pass
+        bbox = _bbox_signature(cq_face)
+        if bbox is not None:
+            signature["bbox"] = bbox
+        try:
+            signature["edge_count"] = len(cq_face.Edges())
+        except Exception:
+            pass
+        return signature
+
+    if isinstance(item, Wire):
+        cq_wire = item.cq_wire
+        try:
+            signature["length"] = float(cq_wire.Length())
+        except Exception:
+            pass
+        try:
+            signature["center"] = _point_tuple(cq_wire.Center())
+        except Exception:
+            pass
+        bbox = _bbox_signature(cq_wire)
+        if bbox is not None:
+            signature["bbox"] = bbox
+        try:
+            signature["edge_count"] = len(cq_wire.Edges())
+        except Exception:
+            pass
+        return signature
+
+    if isinstance(item, Vertex):
+        try:
+            signature["point"] = _point_tuple(item.cq_vertex.Center())
+        except Exception:
+            pass
+        return signature
+
+    return signature
+
+
+def ql_select(
+    shape: AnyShape,
+    domain: str,
+    query: Any,
+    name: str = "QL_Selection",
+) -> List[Any]:
+    """Select topology with QL and record the selected CAD objects as a feature.
+
+    Args:
+        shape: Base SimpleCAD shape to select from.
+        domain: Topology domain: `faces`, `edges`, `wires`, or `vertices`.
+        query: A `simplecadapi.ql.QuerySpec` or a runtime predicate/lambda.
+        name: Feature name used in exported history and FreeCAD scripts.
+
+    Returns:
+        List[Any]: Selected topology objects.
+
+    Usage:
+        top_face = scad.ql_select_one(
+            cylinder,
+            "faces",
+            scad.ql.query()
+                .where(scad.ql.tag("extrusion end face"))
+                .take(1)
+                .exactly(1),
+            name="Selected_Extrusion_Top_Face",
+        )
+
+        Lambdas are supported as snapshot selections:
+
+        selected_edges = scad.ql_select(
+            body,
+            "edges",
+            lambda edge: edge.get_length() > 10.0,
+        )
+
+        The lambda runs when the SimpleCAD script runs. FreeCAD export does
+        not re-run arbitrary Python lambdas; it re-binds the selected result
+        using topology indices and geometry signatures.
+    """
+    try:
+        items = _topology_items(shape, domain)
+        if hasattr(query, "resolve"):
+            selected = list(query.resolve(items))
+            query_data = query.to_dict() if hasattr(query, "to_dict") else {}
+        else:
+            selected = [item for item in items if query(item)]
+            query_data = {"where": [getattr(query, "_ql_expr", None)]}
+
+        indices = [
+            index for item in selected if (index := _shape_index(items, item)) is not None
+        ]
+        signatures = [_topology_signature(item) for item in selected]
+
+        from .feature_history import (
+            bind_feature_output,
+            create_new_history,
+            get_global_history,
+            get_registered_feature_id,
+            Parameter,
+        )
+
+        history = get_global_history()
+        if history is None:
+            history = create_new_history("SimpleCAD Model")
+
+        input_ids = []
+        parent_ids = []
+        feature_id = get_registered_feature_id(shape)
+        if feature_id:
+            input_ids.append(feature_id)
+            parent_ids.append(feature_id)
+
+        feature = history.add_feature(
+            name=name,
+            operation="ql_select",
+            feature_type=FeatureType.CUSTOM,
+            inputs=[shape],
+            input_ids=input_ids,
+            parameters={
+                "domain": Parameter("domain", domain),
+                "query": Parameter("query", query_data),
+                "indices": Parameter("indices", indices),
+                "signatures": Parameter("signatures", signatures),
+                "count": Parameter("count", len(selected)),
+            },
+            output=selected[0] if len(selected) == 1 else selected,
+            description=f"Selected {len(selected)} {domain} item(s) with QL",
+            parent_ids=parent_ids or None,
+        )
+        for item in selected:
+            bind_feature_output(item, feature)
+
+        return selected
+    except Exception as e:
+        raise ValueError(f"QL topology selection failed: {e}")
+
+
+def ql_select_one(
+    shape: AnyShape,
+    domain: str,
+    query: Any,
+    name: str = "QL_Selection",
+) -> Any:
+    """Select exactly one topology item with `ql_select`.
+
+    Args:
+        shape: Base SimpleCAD shape to select from.
+        domain: Topology domain: `faces`, `edges`, `wires`, or `vertices`.
+        query: A `simplecadapi.ql.QuerySpec` or a runtime predicate/lambda.
+        name: Feature name used in exported history and FreeCAD scripts.
+
+    Returns:
+        Any: The single selected topology object.
+    """
+    selected = ql_select(shape, domain, query, name=name)
+    if len(selected) != 1:
+        raise ValueError(f"expected exactly one selected item, got {len(selected)}")
+    return selected[0]
+
+
+def _resolve_query(query: Any, items: List[Any]) -> Tuple[List[Any], Dict[str, Any]]:
+    if hasattr(query, "resolve"):
+        selected = list(query.resolve(items))
+        query_data = query.to_dict() if hasattr(query, "to_dict") else {}
+    else:
+        selected = [item for item in items if query(item)]
+        query_data = {"where": [getattr(query, "_ql_expr", None)]}
+    return selected, query_data
+
+
+def ql_select_from(
+    items: Sequence[Any],
+    query: Any,
+    name: str = "QL_List_Selection",
+) -> List[Any]:
+    """Select from an explicit list of feature outputs and record the result.
+
+    Args:
+        items: Sequence of SimpleCAD feature outputs.
+        query: A `simplecadapi.ql.QuerySpec` or a runtime predicate/lambda.
+        name: Feature name used in exported history and FreeCAD scripts.
+
+    Returns:
+        List[Any]: Selected feature outputs.
+
+    Usage:
+        largest_part = scad.ql_select_one_from(
+            [box, cylinder, bracket],
+            scad.ql.query()
+                .order_by(scad.ql.geo("volume"), desc=True)
+                .take(1)
+                .exactly(1),
+        )
+
+        Export works for SimpleCAD CAD objects that have feature ids. Plain
+        dictionaries or arbitrary Python objects are runtime-only unless they
+        implement a future export protocol.
+    """
+    try:
+        item_list = list(items)
+        selected, query_data = _resolve_query(query, item_list)
+
+        from .feature_history import (
+            bind_feature_output,
+            create_new_history,
+            get_global_history,
+            get_registered_feature_id,
+            Parameter,
+        )
+
+        history = get_global_history()
+        if history is None:
+            history = create_new_history("SimpleCAD Model")
+
+        input_ids: List[str] = []
+        parent_ids: List[str] = []
+        item_feature_ids: List[Optional[str]] = []
+        for item in item_list:
+            feature_id = get_registered_feature_id(item)
+            item_feature_ids.append(feature_id)
+            if feature_id and feature_id not in input_ids:
+                input_ids.append(feature_id)
+                parent_ids.append(feature_id)
+
+        selected_feature_ids: List[str] = []
+        selected_positions: List[int] = []
+        for selected_item in selected:
+            for index, item in enumerate(item_list):
+                if selected_item is item:
+                    selected_positions.append(index)
+                    feature_id = item_feature_ids[index]
+                    if feature_id:
+                        selected_feature_ids.append(feature_id)
+                    break
+
+        feature = history.add_feature(
+            name=name,
+            operation="ql_select_from",
+            feature_type=FeatureType.CUSTOM,
+            inputs=item_list,
+            input_ids=input_ids,
+            parameters={
+                "query": Parameter("query", query_data),
+                "item_feature_ids": Parameter("item_feature_ids", item_feature_ids),
+                "selected_feature_ids": Parameter("selected_feature_ids", selected_feature_ids),
+                "selected_positions": Parameter("selected_positions", selected_positions),
+                "count": Parameter("count", len(selected)),
+            },
+            output=selected[0] if len(selected) == 1 else selected,
+            description=f"Selected {len(selected)} item(s) from feature list with QL",
+            parent_ids=parent_ids or None,
+        )
+        for item in selected:
+            bind_feature_output(item, feature)
+
+        return selected
+    except Exception as e:
+        raise ValueError(f"QL feature-list selection failed: {e}")
+
+
+def ql_select_one_from(
+    items: Sequence[Any],
+    query: Any,
+    name: str = "QL_List_Selection",
+) -> Any:
+    """Select exactly one item from a feature-output list."""
+    selected = ql_select_from(items, query, name=name)
+    if len(selected) != 1:
+        raise ValueError(f"expected exactly one selected item, got {len(selected)}")
+    return selected[0]
+
+
+def ql_select_from_topology(
+    sources: Sequence[Tuple[AnyShape, str]],
+    query: Any,
+    name: str = "QL_Multi_Topology_Selection",
+) -> List[Any]:
+    """Select topology across multiple base shapes and record replay references.
+
+    Args:
+        sources: Sequence of `(shape, domain)` pairs. Domains are `faces`,
+            `edges`, `wires`, or `vertices`.
+        query: A `simplecadapi.ql.QuerySpec` or a runtime predicate/lambda.
+        name: Feature name used in exported history and FreeCAD scripts.
+
+    Returns:
+        List[Any]: Selected topology objects.
+
+    Usage:
+        largest_face = scad.ql_select_one_from_topology(
+            [(left_body, "faces"), (right_body, "faces")],
+            scad.ql.query()
+                .order_by(scad.ql.geo("area"), desc=True)
+                .take(1)
+                .exactly(1),
+        )
+
+        Lambda predicates are exported as result snapshots: SimpleCAD runs the
+        lambda, then FreeCAD re-binds the selected face/edge/wire/vertex by
+        base feature id, topology index, and geometry signature.
+    """
+    try:
+        all_items: List[Any] = []
+        item_refs: List[Dict[str, Any]] = []
+        source_list = list(sources)
+        from .feature_history import (
+            bind_feature_output,
+            create_new_history,
+            get_global_history,
+            get_registered_feature_id,
+            Parameter,
+        )
+
+        input_ids: List[str] = []
+        parent_ids: List[str] = []
+        for source_index, (shape, domain) in enumerate(source_list):
+            feature_id = get_registered_feature_id(shape)
+            if feature_id and feature_id not in input_ids:
+                input_ids.append(feature_id)
+                parent_ids.append(feature_id)
+            items = _topology_items(shape, domain)
+            for index, item in enumerate(items):
+                all_items.append(item)
+                item_refs.append(
+                    {
+                        "source_index": source_index,
+                        "base_feature_id": feature_id,
+                        "domain": domain,
+                        "index": index,
+                        "signature": _topology_signature(item),
+                    }
+                )
+
+        selected, query_data = _resolve_query(query, all_items)
+        selected_refs: List[Dict[str, Any]] = []
+        for selected_item in selected:
+            for index, item in enumerate(all_items):
+                if selected_item is item:
+                    selected_refs.append(item_refs[index])
+                    break
+
+        history = get_global_history()
+        if history is None:
+            history = create_new_history("SimpleCAD Model")
+
+        feature = history.add_feature(
+            name=name,
+            operation="ql_select_from_topology",
+            feature_type=FeatureType.CUSTOM,
+            inputs=[shape for shape, _domain in source_list],
+            input_ids=input_ids,
+            parameters={
+                "query": Parameter("query", query_data),
+                "selected_refs": Parameter("selected_refs", selected_refs),
+                "count": Parameter("count", len(selected)),
+            },
+            output=selected[0] if len(selected) == 1 else selected,
+            description=f"Selected {len(selected)} topology item(s) from multiple sources",
+            parent_ids=parent_ids or None,
+        )
+        for item in selected:
+            bind_feature_output(item, feature)
+
+        return selected
+    except Exception as e:
+        raise ValueError(f"QL multi-topology selection failed: {e}")
+
+
+def ql_select_one_from_topology(
+    sources: Sequence[Tuple[AnyShape, str]],
+    query: Any,
+    name: str = "QL_Multi_Topology_Selection",
+) -> Any:
+    """Select exactly one topology item from multiple sources."""
+    selected = ql_select_from_topology(sources, query, name=name)
+    if len(selected) != 1:
+        raise ValueError(f"expected exactly one selected item, got {len(selected)}")
+    return selected[0]
+
+
 def union_rsolidlist(
     *solids: Union[Solid, Sequence[Solid]],
     clean: bool = True,

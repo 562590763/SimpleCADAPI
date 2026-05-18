@@ -1,5 +1,7 @@
 """SimpleCAD API: a simplified Python CAD modeling API built on CADQuery."""
 
+from . import ql
+
 from .core import (
     # 核心类
     CoordinateSystem,
@@ -61,6 +63,12 @@ from .operations import (
     # 标签和选择
     select_edges_by_tag,
     select_faces_by_tag,
+    ql_select,
+    ql_select_from,
+    ql_select_from_topology,
+    ql_select_one,
+    ql_select_one_from,
+    ql_select_one_from_topology,
     set_tag,
 
     # 布尔运算
@@ -202,6 +210,7 @@ __all__ = [
     # 坐标系
     "get_current_cs",
     "WORLD_CS",
+    "ql",
 
     # 基础几何创建
     "make_angle_arc_redge",
@@ -247,6 +256,12 @@ __all__ = [
     # 标签和选择
     "select_edges_by_tag",
     "select_faces_by_tag",
+    "ql_select",
+    "ql_select_from",
+    "ql_select_from_topology",
+    "ql_select_one",
+    "ql_select_one_from",
+    "ql_select_one_from_topology",
     "set_tag",
 
     # 布尔运算

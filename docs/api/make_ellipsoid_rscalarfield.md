@@ -11,17 +11,3 @@ def make_ellipsoid_rscalarfield(center: Tuple[float, float, float], radii: Tuple
 ## Description
 
 Create an ellipsoid scalar field.
-
-## Parameters
-
-### center
-
-- **Description**: Ellipsoid center coordinates `(x, y, z)`.
-
-### radii
-
-- **Description**: Radii `(rx, ry, rz)`.
-
-## Returns
-
-ScalarField: Ellipsoid scalar field.

@@ -11,17 +11,3 @@ def subtract_rscalarfield(a: ScalarField, b: ScalarField) -> ScalarField
 ## Description
 
 Create a subtraction scalar field.
-
-## Parameters
-
-### a
-
-- **Description**: Minuend scalar field.
-
-### b
-
-- **Description**: Subtrahend scalar field.
-
-## Returns
-
-ScalarField: Subtraction scalar field.

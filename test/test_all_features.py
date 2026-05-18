@@ -10,7 +10,10 @@ import shutil
 from contextlib import redirect_stdout
 
 # 添加项目路径到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 import simplecadapi as scad
 
@@ -1469,7 +1472,8 @@ def run_comprehensive_tests():
 
 
 if __name__ == "__main__":
-    os.makedirs("output", exist_ok=True)
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "sandbox", "output")
+    os.makedirs(output_dir, exist_ok=True)
     success = run_comprehensive_tests()
 
     if success:

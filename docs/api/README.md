@@ -32,6 +32,7 @@ This index includes API docs generated from `operations.py`, `evolve.py`, `const
 - [make_spline_rwire](make_spline_rwire.md) *(from operations.py)*
 - [make_three_point_arc_redge](make_three_point_arc_redge.md) *(from operations.py)*
 - [make_three_point_arc_rwire](make_three_point_arc_rwire.md) *(from operations.py)*
+- [make_torus_rsolid](make_torus_rsolid.md) *(from operations.py)*
 - [make_wire_from_edges_rwire](make_wire_from_edges_rwire.md) *(from operations.py)*
 
 ## Transforms
@@ -51,6 +52,12 @@ This index includes API docs generated from `operations.py`, `evolve.py`, `const
 
 ## Tagging and Selection
 
+- [ql_select](ql_select.md) *(from operations.py)*
+- [ql_select_from](ql_select_from.md) *(from operations.py)*
+- [ql_select_from_topology](ql_select_from_topology.md) *(from operations.py)*
+- [ql_select_one](ql_select_one.md) *(from operations.py)*
+- [ql_select_one_from](ql_select_one_from.md) *(from operations.py)*
+- [ql_select_one_from_topology](ql_select_one_from_topology.md) *(from operations.py)*
 - [select_edges_by_tag](select_edges_by_tag.md) *(from operations.py)*
 - [select_faces_by_tag](select_faces_by_tag.md) *(from operations.py)*
 - [set_tag](set_tag.md) *(from operations.py)*
@@ -108,9 +115,11 @@ This index includes API docs generated from `operations.py`, `evolve.py`, `const
 - [meta](meta.md) *(from ql.py)*
 - [not_](not_.md) *(from ql.py)*
 - [or_](or_.md) *(from ql.py)*
+- [query](query.md) *(from ql.py)*
 - [radial_pattern_rsolidlist](radial_pattern_rsolidlist.md) *(from operations.py)*
 - [render_screenshot_rpath](render_screenshot_rpath.md) *(from operations.py)*
 - [scale_rscalarfield](scale_rscalarfield.md) *(from field.py)*
+- [scale_shape](scale_shape.md) *(from operations.py)*
 - [select](select.md) *(from ql.py)*
 - [smooth_subtract_rscalarfield](smooth_subtract_rscalarfield.md) *(from field.py)*
 - [smooth_union_rscalarfield](smooth_union_rscalarfield.md) *(from field.py)*

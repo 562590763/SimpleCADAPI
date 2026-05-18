@@ -11,17 +11,3 @@ def scale_rscalarfield(field: ScalarField, factors: Tuple[float, float, float]) 
 ## Description
 
 Scale a scalar field around the origin.
-
-## Parameters
-
-### field
-
-- **Description**: Input scalar field.
-
-### factors
-
-- **Description**: Scale factors `(sx, sy, sz)`.
-
-## Returns
-
-ScalarField: Scaled scalar field.

@@ -11,13 +11,3 @@ def intersect_rscalarfield(*fields: ScalarField) -> ScalarField
 ## Description
 
 Create an intersection scalar field.
-
-## Parameters
-
-### *fields
-
-- **Description**: Input scalar fields.
-
-## Returns
-
-ScalarField: Intersection scalar field.

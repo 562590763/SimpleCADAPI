@@ -369,6 +369,12 @@ class FeatureExporter:
                 lines.extend(self._generate_freecad_wire(feature, obj_name, created_objects, tree_objects))
             elif feature.operation == "make_face":
                 lines.extend(self._generate_freecad_face(feature, obj_name, created_objects, tree_objects))
+            elif feature.operation == "ql_select":
+                lines.extend(self._generate_freecad_ql_select(feature, result_name, created_objects))
+            elif feature.operation == "ql_select_from":
+                lines.extend(self._generate_freecad_ql_select_from(feature, result_name, created_objects))
+            elif feature.operation == "ql_select_from_topology":
+                lines.extend(self._generate_freecad_ql_select_from_topology(feature, result_name, created_objects))
             elif feature.operation == "loft":
                 lines.extend(self._generate_freecad_loft(feature, result_name, created_objects))
             elif feature.operation == "sweep":
@@ -441,6 +447,10 @@ class FeatureExporter:
             elif feature.operation in {"make_wire", "make_face"}:
                 tree_objects[feature_id] = obj_name
                 created_objects[feature_id] = f"{obj_name}_Shape"
+            elif feature.operation in {"ql_select", "ql_select_from", "ql_select_from_topology"}:
+                lines.extend(self._wrap_feature_tree(feature, obj_name, result_name, tree_objects))
+                tree_objects[feature_id] = obj_name
+                created_objects[feature_id] = result_name
             elif feature.operation in {
                 "make_sphere_field",
                 "make_ellipsoid_field",
@@ -532,7 +542,13 @@ class FeatureExporter:
 
     def _history_uses_edge_modifier_features(self) -> bool:
         return any(
-            feature.operation in {"fillet", "chamfer"}
+            feature.operation in {
+                "fillet",
+                "chamfer",
+                "ql_select",
+                "ql_select_from",
+                "ql_select_from_topology",
+            }
             for feature in self.history.features.values()
         )
 
@@ -748,6 +764,81 @@ class FeatureExporter:
             "    if matched:",
             "        return matched",
             "    return [edges[i] for i in (fallback_indices or []) if 0 <= i < len(edges)]",
+            "",
+            "def _scad_bbox_score(obj, signature):",
+            "    if 'bbox' not in signature:",
+            "        return 0.0",
+            "    bbox = obj.BoundBox",
+            "    obj_bbox = [bbox.XMin, bbox.YMin, bbox.ZMin, bbox.XMax, bbox.YMax, bbox.ZMax]",
+            "    return sum(abs(float(a) - float(b)) for a, b in zip(obj_bbox, signature['bbox']))",
+            "",
+            "def _scad_face_score(face, signature):",
+            "    score = 0.0",
+            "    if 'area' in signature:",
+            "        score += abs(float(face.Area) - float(signature['area']))",
+            "    if 'center' in signature:",
+            "        score += (face.CenterOfMass - _scad_vec(signature['center'])).Length",
+            "    score += _scad_bbox_score(face, signature)",
+            "    if 'normal' in signature:",
+            "        try:",
+            "            normal = face.normalAt(0, 0)",
+            "            score += (normal - _scad_vec(signature['normal'])).Length",
+            "        except Exception:",
+            "            pass",
+            "    if 'edge_count' in signature:",
+            "        score += abs(len(face.Edges) - int(signature['edge_count']))",
+            "    return score",
+            "",
+            "def _scad_wire_score(wire, signature):",
+            "    score = 0.0",
+            "    if 'length' in signature:",
+            "        score += abs(float(wire.Length) - float(signature['length']))",
+            "    if 'center' in signature:",
+            "        score += (wire.CenterOfMass - _scad_vec(signature['center'])).Length",
+            "    score += _scad_bbox_score(wire, signature)",
+            "    if 'edge_count' in signature:",
+            "        score += abs(len(wire.Edges) - int(signature['edge_count']))",
+            "    return score",
+            "",
+            "def _scad_vertex_score(vertex, signature):",
+            "    if 'point' not in signature:",
+            "        return 0.0",
+            "    return (vertex.Point - _scad_vec(signature['point'])).Length",
+            "",
+            "def _scad_topology_items(shape, domain):",
+            "    domain = str(domain).lower()",
+            "    if domain in ('face', 'faces'):",
+            "        return list(shape.Faces), _scad_face_score",
+            "    if domain in ('edge', 'edges'):",
+            "        return list(shape.Edges), _scad_edge_score",
+            "    if domain in ('wire', 'wires'):",
+            "        return list(shape.Wires), _scad_wire_score",
+            "    if domain in ('vertex', 'vertices'):",
+            "        return list(shape.Vertexes), _scad_vertex_score",
+            "    return [], None",
+            "",
+            "def _scad_match_topology_by_signature(shape, domain, signatures, fallback_indices=None):",
+            "    items, scorer = _scad_topology_items(shape, domain)",
+            "    if scorer is None:",
+            "        return []",
+            "    matched = []",
+            "    used = set()",
+            "    for signature in signatures or []:",
+            "        best_index = None",
+            "        best_score = None",
+            "        for index, item in enumerate(items):",
+            "            if index in used:",
+            "                continue",
+            "            score = scorer(item, signature)",
+            "            if best_score is None or score < best_score:",
+            "                best_index = index",
+            "                best_score = score",
+            "        if best_index is not None:",
+            "            used.add(best_index)",
+            "            matched.append(items[best_index])",
+            "    if matched:",
+            "        return matched",
+            "    return [items[i] for i in (fallback_indices or []) if 0 <= i < len(items)]",
             "",
         ]
 
@@ -1267,6 +1358,125 @@ class FeatureExporter:
             lines.append("# Warning: Base wire not found for face")
 
         lines.append("")
+        return lines
+
+    def _generate_freecad_ql_select(self, feature, obj_name: str, created_objects: dict) -> List[str]:
+        """Generate FreeCAD code for an exportable QL topology selection."""
+        domain = self._get_param_value(feature, "domain", "faces")
+        indices = self._get_param_value(feature, "indices", [])
+        signatures = self._get_param_value(feature, "signatures", [])
+        count = self._get_param_value(feature, "count", 0)
+        base_obj = self._get_input_object_name(feature, created_objects)
+
+        lines = [
+            f"# QL Select: {feature.name}",
+        ]
+        if base_obj:
+            lines.extend([
+                f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
+                f"{obj_name}_domain = {domain!r}",
+                f"{obj_name}_indices = {self._list_expr(indices)}",
+                f"{obj_name}_signatures = {self._list_expr(signatures)}",
+                "doc.recompute()",
+                f"{obj_name}_selected = _scad_match_topology_by_signature({base_obj}.Shape, {obj_name}_domain, {obj_name}_signatures, {obj_name}_indices)",
+                f"if len({obj_name}_selected) != {int(count)}:",
+                f"    print('Warning: QL selection {obj_name} expected {int(count)} item(s), got', len({obj_name}_selected))",
+                f"if len({obj_name}_selected) == 1:",
+                f"    if {obj_name}_domain.lower() in ('face', 'faces') and len({obj_name}_selected[0].Wires):",
+                f"        {obj_name}.Shape = Part.Face({obj_name}_selected[0].Wires[0])",
+                "    else:",
+                f"        {obj_name}.Shape = {obj_name}_selected[0]",
+                f"elif len({obj_name}_selected) > 1:",
+                f"    {obj_name}.Shape = Part.Compound({obj_name}_selected)",
+                "else:",
+                f"    {obj_name}.Shape = Part.Shape()",
+                "doc.recompute()",
+            ])
+        else:
+            lines.append("# Warning: QL selection base object not found")
+
+        lines.append("")
+        return lines
+
+    def _shape_assignment_lines_from_object_names(
+        self,
+        obj_name: str,
+        selected_objects: List[str],
+        expected_count: int,
+    ) -> List[str]:
+        lines: List[str] = [
+            f"{obj_name}_selected = [{', '.join(selected_objects)}]",
+            f"if len({obj_name}_selected) != {int(expected_count)}:",
+            f"    print('Warning: QL selection {obj_name} expected {int(expected_count)} item(s), got', len({obj_name}_selected))",
+            f"if len({obj_name}_selected) == 1:",
+            f"    {obj_name}.Shape = {obj_name}_selected[0].Shape.copy()",
+            f"elif len({obj_name}_selected) > 1:",
+            f"    {obj_name}.Shape = Part.Compound([item.Shape for item in {obj_name}_selected])",
+            "else:",
+            f"    {obj_name}.Shape = Part.Shape()",
+        ]
+        return lines
+
+    def _generate_freecad_ql_select_from(self, feature, obj_name: str, created_objects: dict) -> List[str]:
+        """Generate FreeCAD code for selecting from a list of feature outputs."""
+        selected_feature_ids = self._get_param_value(feature, "selected_feature_ids", [])
+        count = self._get_param_value(feature, "count", 0)
+        selected_objects = [
+            created_objects[feature_id]
+            for feature_id in selected_feature_ids
+            if feature_id in created_objects
+        ]
+
+        lines = [
+            f"# QL Select From List: {feature.name}",
+            f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
+        ]
+        lines.extend(self._shape_assignment_lines_from_object_names(obj_name, selected_objects, count))
+        lines.append("")
+        return lines
+
+    def _generate_freecad_ql_select_from_topology(self, feature, obj_name: str, created_objects: dict) -> List[str]:
+        """Generate FreeCAD code for multi-source topology selection."""
+        selected_refs = self._get_param_value(feature, "selected_refs", [])
+        count = self._get_param_value(feature, "count", 0)
+        lines = [
+            f"# QL Select From Topology: {feature.name}",
+            f"{obj_name} = doc.addObject('Part::Feature', '{obj_name}')",
+            f"{obj_name}_selected = []",
+        ]
+
+        for ref_index, ref in enumerate(selected_refs):
+            base_feature_id = ref.get("base_feature_id") if isinstance(ref, dict) else None
+            base_obj = created_objects.get(base_feature_id)
+            if not base_obj:
+                lines.append(f"# Warning: QL topology source {ref_index} base object not found")
+                continue
+            domain = ref.get("domain", "faces")
+            index = ref.get("index", None)
+            signature = ref.get("signature", {})
+            lines.extend([
+                f"{obj_name}_ref_{ref_index}_domain = {domain!r}",
+                f"{obj_name}_ref_{ref_index}_indices = {self._list_expr([index] if index is not None else [])}",
+                f"{obj_name}_ref_{ref_index}_signatures = {self._list_expr([signature])}",
+                f"{obj_name}_ref_{ref_index}_items = _scad_match_topology_by_signature({base_obj}.Shape, {obj_name}_ref_{ref_index}_domain, {obj_name}_ref_{ref_index}_signatures, {obj_name}_ref_{ref_index}_indices)",
+                f"{obj_name}_selected.extend({obj_name}_ref_{ref_index}_items)",
+            ])
+
+        lines.extend([
+            f"if len({obj_name}_selected) != {int(count)}:",
+            f"    print('Warning: QL topology selection {obj_name} expected {int(count)} item(s), got', len({obj_name}_selected))",
+            f"if len({obj_name}_selected) == 1:",
+            f"    if hasattr({obj_name}_selected[0], 'Wires') and len({obj_name}_selected[0].Wires):",
+            f"        {obj_name}.Shape = Part.Face({obj_name}_selected[0].Wires[0])",
+            "    else:",
+            f"        {obj_name}.Shape = {obj_name}_selected[0]",
+            f"elif len({obj_name}_selected) > 1:",
+            f"    {obj_name}.Shape = Part.Compound({obj_name}_selected)",
+            "else:",
+            f"    {obj_name}.Shape = Part.Shape()",
+            "doc.recompute()",
+            "",
+        ])
         return lines
 
     def _generate_freecad_sweep(self, feature, obj_name: str, created_objects: dict) -> List[str]:

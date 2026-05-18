@@ -70,5 +70,59 @@ class TestQLMetadataPredicates(unittest.TestCase):
         self.assertIsNone(Q.select([]).first())
 
 
+class TestQLExportSelection(unittest.TestCase):
+    def test_ql_select_records_exportable_face(self):
+        scad.create_new_history("ql_select_export")
+        profile = scad.make_circle_rface((0.0, 0.0, 0.0), 5.0)
+        cylinder = scad.extrude_rsolid(profile, (0.0, 0.0, 1.0), 10.0)
+
+        top_face = scad.ql_select_one(
+            cylinder,
+            "faces",
+            Q.query().where(Q.tag("extrusion end face")).take(1).exactly(1),
+            name="Selected_Extrusion_Top_Face",
+        )
+        path = scad.make_helix_rwire(2.0, 18.0, 7.0, center=(0.0, 0.0, 10.0))
+        scad.sweep_rsolid(top_face, path, is_frenet=True)
+
+        script = scad.FeatureExporter(scad.get_global_history())._generate_freecad_script()
+        self.assertIn("# QL Select: Selected_Extrusion_Top_Face", script)
+        self.assertIn("_scad_match_topology_by_signature", script)
+        self.assertIn(".Sections = [Feature_002_Selected_Extrusion_Top_Face_Result]", script)
+        self.assertNotIn("# Warning: Sweep profile/path not found", script)
+
+    def test_ql_select_from_feature_outputs_exports(self):
+        scad.create_new_history("ql_select_from_export")
+        small = scad.make_box_rsolid(1.0, 1.0, 1.0)
+        large = scad.make_box_rsolid(2.0, 2.0, 2.0)
+
+        selected = scad.ql_select_one_from(
+            [small, large],
+            Q.query().order_by(Q.geo("volume"), desc=True).take(1).exactly(1),
+            name="Largest_Box",
+        )
+
+        self.assertIs(selected, large)
+        script = scad.FeatureExporter(scad.get_global_history())._generate_freecad_script()
+        self.assertIn("# QL Select From List: Largest_Box", script)
+        self.assertIn("Part.Compound([item.Shape", script)
+
+    def test_ql_select_from_topology_exports(self):
+        scad.create_new_history("ql_select_multi_topology_export")
+        a = scad.make_box_rsolid(1.0, 1.0, 1.0)
+        b = scad.make_box_rsolid(2.0, 2.0, 2.0)
+
+        selected = scad.ql_select_one_from_topology(
+            [(a, "faces"), (b, "faces")],
+            Q.query().order_by(Q.geo("area"), desc=True).take(1).exactly(1),
+            name="Largest_Face",
+        )
+
+        self.assertAlmostEqual(selected.get_area(), 4.0)
+        script = scad.FeatureExporter(scad.get_global_history())._generate_freecad_script()
+        self.assertIn("# QL Select From Topology: Largest_Face", script)
+        self.assertIn("_scad_match_topology_by_signature", script)
+
+
 if __name__ == "__main__":
     unittest.main()

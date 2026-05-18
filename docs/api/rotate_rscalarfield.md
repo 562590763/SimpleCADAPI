@@ -11,21 +11,3 @@ def rotate_rscalarfield(field: ScalarField, axis: Tuple[float, float, float], an
 ## Description
 
 Rotate a scalar field around the origin.
-
-## Parameters
-
-### field
-
-- **Description**: Input scalar field.
-
-### axis
-
-- **Description**: Rotation axis vector `(x, y, z)`.
-
-### angle_degrees
-
-- **Description**: Rotation angle in degrees.
-
-## Returns
-
-ScalarField: Rotated scalar field.

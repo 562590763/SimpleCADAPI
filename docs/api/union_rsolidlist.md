@@ -3,12 +3,7 @@
 ## API Definition
 
 ```python
-def union_rsolidlist(
-    *solids: Union[Solid, Sequence[Solid]],
-    clean: bool = True,
-    glue: bool = True,
-    tol: Optional[float] = None,
-) -> List[Solid]
+def union_rsolidlist(*solids: Union[Solid, Sequence[Solid]], clean: bool = True, glue: bool = _DEFAULT_UNION_GLUE, tol: Optional[float] = None) -> List[Solid]
 ```
 
 *Source: operations.py*
@@ -20,18 +15,14 @@ Compute the boolean union of one or more solids.
 All boolean operations (union/cut/intersect) accept a mix of Solid and
 sequences; results are always returned as a list of Solid.
 Keep the list result unless you have explicitly verified `len(result) == 1`.
-SimpleCAD enables glue mode by default and applies a conservative internal fuzzy
-tolerance, so normal modeling code does not need to tune boolean parameters.
-By default this follows CadQuery's union flow: perform one OCC fuse across the
-input solids, then call `clean()` to unify same-domain faces when possible.
+SimpleCAD enables glue mode by default and applies a conservative internal
+fuzzy tolerance so normal code does not need to tune boolean parameters.
 Touching-but-not-intersecting inputs can legitimately return multiple solids.
 If that happens, keep using the list: pass it directly into later union calls,
-or iterate over the solids for later cut/intersect steps.
-When the returned solids are still separated by more than the active tolerance,
-SimpleCAD prints a stdout warning explaining that the objects do not touch and
-that their gap exceeds `tol`.
-If you truly need exactly one merged solid, you must check the list length
-before using `result[0]`.
+or iterate over the solids for later cut/intersect steps. When returned
+solids remain separated by more than the active tolerance, SimpleCAD prints
+a stdout warning describing the detected gap. If you truly need exactly one
+merged solid, you must check the list length before using `result[0]`.
 
 ## Parameters
 
@@ -41,15 +32,15 @@ before using `result[0]`.
 
 ### clean
 
-- **Description**: Call CadQuery's `clean()` after the union to remove splitter edges and unify same-domain faces when possible.
+- **Description**: Call CadQuery's `clean()` after the union to unify same-domain faces and remove splitter edges when possible.
 
 ### glue
 
-- **Description**: Enable OCC glue mode for touching or partially overlapping inputs. Defaults to `True` for SimpleCAD's standard union behavior.
+- **Description**: Enable OCC glue mode for touching or partially overlapping inputs. Defaults to True for SimpleCAD's standard union behavior.
 
 ### tol
 
-- **Description**: Optional fuzzy-boolean tolerance passed to the OCC union kernel. When omitted, SimpleCAD derives a conservative scale-aware value automatically.
+- **Description**: Optional fuzzy-boolean tolerance used by the OCC union kernel. When omitted, SimpleCAD chooses a conservative scale-aware tolerance.
 
 ## Returns
 
