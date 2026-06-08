@@ -122,8 +122,8 @@ _OP_MAKE_REVOLVE_RSOLID = "make_revolve_rsolid"
 _OP_MAKE_LOFT_RSOLID = "make_loft_rsolid"
 _OP_MAKE_SWEEP_RSOLID = "make_sweep_rsolid"
 _OP_MAKE_UNION_RSOLID = "make_union_rsolid"
-_OP_MAKE_CUT_RSOLIDLIST = "make_cut_rsolidlist"
-_OP_MAKE_INTERSECT_RSOLIDLIST = "make_intersect_rsolidlist"
+_OP_MAKE_CUT_RSOLID = "make_cut_rsolid"
+_OP_MAKE_INTERSECT_RSOLID = "make_intersect_rsolid"
 _OP_MAKE_FILLET_RSOLID = "make_fillet_rsolid"
 _OP_MAKE_CHAMFER_RSOLID = "make_chamfer_rsolid"
 _OP_MAKE_SHELL_RSOLID = "make_shell_rsolid"
@@ -545,9 +545,9 @@ def _semantic_delta_for_output(
             _OP_MAKE_FILLET_RSOLID,
             _OP_MAKE_CHAMFER_RSOLID,
             _OP_MAKE_SHELL_RSOLID,
-            _OP_MAKE_CUT_RSOLIDLIST,
+            _OP_MAKE_CUT_RSOLID,
             _OP_MAKE_UNION_RSOLID,
-            _OP_MAKE_INTERSECT_RSOLIDLIST,
+            _OP_MAKE_INTERSECT_RSOLID,
             _OP_MAKE_TRANSLATE_RSHAPE,
             _OP_MAKE_ROTATE_RSHAPE,
             _OP_MAKE_MIRROR_RSHAPE,
@@ -571,9 +571,9 @@ def _semantic_delta_for_output(
                 _OP_MAKE_FILLET_RSOLID,
                 _OP_MAKE_CHAMFER_RSOLID,
                 _OP_MAKE_SHELL_RSOLID,
-                _OP_MAKE_CUT_RSOLIDLIST,
+                _OP_MAKE_CUT_RSOLID,
                 _OP_MAKE_UNION_RSOLID,
-                _OP_MAKE_INTERSECT_RSOLIDLIST,
+                _OP_MAKE_INTERSECT_RSOLID,
                 _OP_MAKE_FIELD_SURFACE_RSOLID,
             }:
                 resolved_entity_type = "Feature"
@@ -2989,7 +2989,7 @@ def union_rsolid(
         )
 
 
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
+def cut_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
     """Compute the boolean difference of solids.
 
     Args:
@@ -3005,10 +3005,10 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         sequences, and returns a single `Solid`.
     """
     try:
-        remaining = _flatten_boolean_solids(solids, "cut_rsolidlist")
+        remaining = _flatten_boolean_solids(solids, "cut_rsolid")
 
         if not remaining:
-            raise ValueError("cut_rsolidlist 至少需要一个Solid输入")
+            raise ValueError("cut_rsolid 至少需要一个Solid输入")
 
         if len(remaining) == 1:
             return remaining[0]
@@ -3061,7 +3061,7 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         if cut_performed and last_delta is not None:
             result_solid = _finalize_tracked_solid(
                 result_solid,
-                op=_OP_MAKE_CUT_RSOLIDLIST,
+                op=_OP_MAKE_CUT_RSOLID,
                 params={"tool_count": len(remaining) - 1},
                 source_solid=remaining[0],
                 delta=last_delta,
@@ -3069,9 +3069,9 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 input_shapes=remaining,
             )
         else:
-            _attach_track_summary(result_solid, op=_OP_MAKE_CUT_RSOLIDLIST)
+            _attach_track_summary(result_solid, op=_OP_MAKE_CUT_RSOLID)
             record_operation_if_active(
-                op=_OP_MAKE_CUT_RSOLIDLIST,
+                op=_OP_MAKE_CUT_RSOLID,
                 params={"tool_count": len(remaining) - 1},
                 outputs=result_solid,
                 input_shapes=remaining,
@@ -3081,7 +3081,7 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         return result_solid
     except Exception as e:
         _wrap_public_api_error(
-            operation="cut_rsolidlist",
+            operation="cut_rsolid",
             what_happened="Failed to compute the boolean cut.",
             possible_causes=[
                 "One or more inputs are not Solid objects.",
@@ -3097,7 +3097,7 @@ def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         )
 
 
-def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
+def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
     """Compute the boolean intersection of solids.
 
     Args:
@@ -3113,10 +3113,10 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         error instead of returning an empty list.
     """
     try:
-        remaining = _flatten_boolean_solids(solids, "intersect_rsolidlist")
+        remaining = _flatten_boolean_solids(solids, "intersect_rsolid")
 
         if not remaining:
-            raise ValueError("intersect_rsolidlist 至少需要一个Solid输入")
+            raise ValueError("intersect_rsolid 至少需要一个Solid输入")
 
         if len(remaining) == 1:
             return remaining[0]
@@ -3167,7 +3167,7 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         if intersect_performed and last_delta is not None:
             result_solid = _finalize_tracked_solid(
                 result_solid,
-                op=_OP_MAKE_INTERSECT_RSOLIDLIST,
+                op=_OP_MAKE_INTERSECT_RSOLID,
                 params={"input_count": len(remaining)},
                 source_solid=remaining[0],
                 delta=last_delta,
@@ -3175,9 +3175,9 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
                 input_shapes=remaining,
             )
         else:
-            _attach_track_summary(result_solid, op=_OP_MAKE_INTERSECT_RSOLIDLIST)
+            _attach_track_summary(result_solid, op=_OP_MAKE_INTERSECT_RSOLID)
             record_operation_if_active(
-                op=_OP_MAKE_INTERSECT_RSOLIDLIST,
+                op=_OP_MAKE_INTERSECT_RSOLID,
                 params={"input_count": len(remaining)},
                 outputs=result_solid,
                 input_shapes=remaining,
@@ -3187,7 +3187,7 @@ def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid:
         return result_solid
     except Exception as e:
         _wrap_public_api_error(
-            operation="intersect_rsolidlist",
+            operation="intersect_rsolid",
             what_happened="Failed to compute the boolean intersection.",
             possible_causes=[
                 "One or more inputs are not Solid objects.",

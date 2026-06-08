@@ -196,7 +196,7 @@ class TestSerializableGeometrySelectors(unittest.TestCase):
         tool = scad.make_box_rsolid(
             4.0, 4.0, 4.0, bottom_face_center=(-2.0, -2.0, 0.25)
         )
-        result = scad.cut_rsolidlist(field_solid, tool)
+        result = scad.cut_rsolid(field_solid, tool)
 
         selector = (
             Q.faces()

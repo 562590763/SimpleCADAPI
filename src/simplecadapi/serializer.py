@@ -126,8 +126,8 @@ PUBLIC_API_COVERAGE: Dict[str, Dict[str, str]] = {
         "reason": "Recorded as make_helix_wire + sweep macro instead of a dedicated core IR node.",
     },
     "union_rsolid": {"status": "replayable", "op": "make_union_rsolid"},
-    "cut_rsolidlist": {"status": "replayable", "op": "make_cut_rsolidlist"},
-    "intersect_rsolidlist": {"status": "replayable", "op": "make_intersect_rsolidlist"},
+    "cut_rsolid": {"status": "replayable", "op": "make_cut_rsolid"},
+    "intersect_rsolid": {"status": "replayable", "op": "make_intersect_rsolid"},
     "fillet_rsolid": {"status": "replayable", "op": "make_fillet_rsolid"},
     "chamfer_rsolid": {"status": "replayable", "op": "make_chamfer_rsolid"},
     "shell_rsolid": {"status": "replayable", "op": "make_shell_rsolid"},
@@ -186,9 +186,9 @@ CANONICAL_CORE_OP_SET: Tuple[str, ...] = (
     "make_translate_rshape",
     "make_rotate_rshape",
     "make_mirror_rshape",
-    "make_cut_rsolidlist",
+    "make_cut_rsolid",
     "make_union_rsolid",
-    "make_intersect_rsolidlist",
+    "make_intersect_rsolid",
     "make_fillet_rsolid",
     "make_chamfer_rsolid",
     "make_shell_rsolid",
@@ -799,9 +799,9 @@ _OP_REGISTRY: Dict[str, Any] = {
         center=tuple(p.get("center", (0, 0, 0))),
         dir=tuple(p.get("dir", (0, 0, 1))),
     ),
-    "make_cut_rsolidlist": lambda p: None,  # handled specially below
+    "make_cut_rsolid": lambda p: None,  # handled specially below
     "make_union_rsolid": lambda p: None,  # handled specially below
-    "make_intersect_rsolidlist": lambda p: None,  # handled specially below
+    "make_intersect_rsolid": lambda p: None,  # handled specially below
 }
 
 
@@ -1015,14 +1015,14 @@ def _execute_graph(
             op_name = node.op
             params = node.params
 
-            if op_name == "make_cut_rsolidlist":
+            if op_name == "make_cut_rsolid":
                 if len(node.inputs) < 2:
                     continue
                 body_list = outputs.get(node.inputs[0].node_id, [])
                 tool_lists = [outputs.get(inp.node_id, []) for inp in node.inputs[1:]]
                 all_tools = [cast(Solid, s) for lst in tool_lists for s in lst]
                 if body_list and all_tools:
-                    result = ops.cut_rsolidlist(cast(Solid, body_list[0]), all_tools)
+                    result = ops.cut_rsolid(cast(Solid, body_list[0]), all_tools)
                     _store_outputs(node, result)
                 continue
 
@@ -1037,14 +1037,14 @@ def _execute_graph(
                     _store_outputs(node, all_solids[0])
                 continue
 
-            if op_name == "make_intersect_rsolidlist":
+            if op_name == "make_intersect_rsolid":
                 if len(node.inputs) < 2:
                     continue
                 all_solids: List[Solid] = []
                 for inp in node.inputs:
                     all_solids.extend(cast(List[Solid], outputs.get(inp.node_id, [])))
                 if len(all_solids) >= 2:
-                    result = ops.intersect_rsolidlist(all_solids[0], all_solids[1:])
+                    result = ops.intersect_rsolid(all_solids[0], all_solids[1:])
                     _store_outputs(node, result)
                 continue
 

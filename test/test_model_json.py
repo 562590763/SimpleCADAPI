@@ -451,7 +451,7 @@ class TestOperationGraphDeltaSerialization(unittest.TestCase):
             tool = scad.make_cylinder_rsolid(
                 0.75, 6.0, bottom_face_center=(0.0, 0.0, -1.0)
             )
-            scad.cut_rsolidlist(body, tool)
+            scad.cut_rsolid(body, tool)
 
         restored = scad.import_graph_json(scad.export_graph_json(session.graph))
         leaf = restored.leaf_nodes()[0]

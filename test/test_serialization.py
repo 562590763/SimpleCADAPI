@@ -100,11 +100,11 @@ class TestExportImport(unittest.TestCase):
         with scad.GraphSession() as session:
             body = scad.make_box_rsolid(10, 10, 10)
             tool = scad.make_cylinder_rsolid(2.0, 15.0, bottom_face_center=(3, 3, -2.5))
-            scad.cut_rsolidlist(body, tool)
+            scad.cut_rsolid(body, tool)
 
         payload = json.loads(export_graph_json(session.graph))
         leaf = next(
-            node for node in payload["nodes"] if node["op"] == "make_cut_rsolidlist"
+            node for node in payload["nodes"] if node["op"] == "make_cut_rsolid"
         )
 
         self.assertIn("display", leaf)
@@ -197,8 +197,8 @@ class TestCoverageMatrix(unittest.TestCase):
             "sweep_rsolid",
             "helical_sweep_rsolid",
             "union_rsolid",
-            "cut_rsolidlist",
-            "intersect_rsolidlist",
+            "cut_rsolid",
+            "intersect_rsolid",
             "fillet_rsolid",
             "chamfer_rsolid",
             "shell_rsolid",

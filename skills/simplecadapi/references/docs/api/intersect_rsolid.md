@@ -1,9 +1,9 @@
-# intersect_rsolidlist
+# intersect_rsolid
 
 ## API Definition
 
 ```python
-def intersect_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid
+def intersect_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid
 ```
 
 *Source: operations.py*

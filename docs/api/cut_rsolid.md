@@ -1,9 +1,9 @@
-# cut_rsolidlist
+# cut_rsolid
 
 ## API Definition
 
 ```python
-def cut_rsolidlist(*solids: Union[Solid, Sequence[Solid]]) -> Solid
+def cut_rsolid(*solids: Union[Solid, Sequence[Solid]]) -> Solid
 ```
 
 *Source: operations.py*

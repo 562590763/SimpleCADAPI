@@ -488,7 +488,7 @@ class SkillPackager:
             15. If a task depends on model replay or interchange, prefer `export_model_json()` output over hand-written payloads.
 
             ## Boolean result discipline
-            - `union_rsolid(...)`, `cut_rsolidlist(...)`, and `intersect_rsolidlist(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
+            - `union_rsolid(...)`, `cut_rsolid(...)`, and `intersect_rsolid(...)` accept mixed inputs: standalone `Solid`, lists of `Solid`, and nested sequences.
             - They return a single `Solid`.
             - `union_rsolid(...)` already applies the package's default glue mode and a conservative internal tolerance.
             - If a union cannot produce exactly one merged solid, it fails explicitly instead of returning multiple pieces.
