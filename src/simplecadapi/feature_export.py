@@ -1163,6 +1163,28 @@ class FeatureExporter:
             ]
             return lines
 
+        # Part::Cut accepts exactly one Base and one Tool.  SimpleCADAPI cut
+        # operations, however, may contain multiple tool solids (for example,
+        # every instance produced by a radial or linear pattern).  Preserve
+        # those source features in the FreeCAD tree and combine them in an
+        # explicit MultiFuse tool node before creating the cut.  The existing
+        # two-parent path below remains unchanged.
+        if feature.operation == "boolean_cut" and len(parent_objects) > 2:
+            base_obj = parent_objects[0]
+            tool_objects = parent_objects[1:]
+            tools_name = f"{obj_name}_Tools"
+            lines = [
+                f"# Boolean {feature.operation}: {feature.name}",
+                f"{tools_name} = doc.addObject('Part::MultiFuse', '{tools_name}')",
+                f"{tools_name}.Label = {feature.name!r} + ' Tools'",
+                f"{tools_name}.Shapes = [{', '.join(tool_objects)}]",
+                f"{obj_name} = doc.addObject('Part::Cut', '{obj_name}')",
+                f"{obj_name}.Base = {base_obj}",
+                f"{obj_name}.Tool = {tools_name}",
+                "",
+            ]
+            return lines
+
         lines = [
             f"# Boolean {feature.operation}: {feature.name}",
             f"{obj_name} = doc.addObject('{fc_type}', '{obj_name}')",

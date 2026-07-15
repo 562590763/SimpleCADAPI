@@ -18,6 +18,7 @@ Run with:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -686,6 +687,25 @@ def test_boolean_feature_export() -> None:
     if not final_result:
         raise AssertionError("Boolean cut failed")
 
+    multi_cut_base = scad.make_box_rsolid(40, 24, 12)
+    multi_cut_tool_a = scad.make_cylinder_rsolid(
+        radius=4,
+        height=14,
+        bottom_face_center=(-8, 0, -1),
+    )
+    multi_cut_tool_b = scad.make_cylinder_rsolid(
+        radius=4,
+        height=14,
+        bottom_face_center=(8, 0, -1),
+    )
+    multi_cut_result = scad.cut_rsolidlist(
+        multi_cut_base,
+        multi_cut_tool_a,
+        multi_cut_tool_b,
+    )
+    if not multi_cut_result:
+        raise AssertionError("Multi-tool boolean cut failed")
+
     print(f"  union volume: {step2[0].get_volume():.2f}")
     print(f"  cut volume: {final_result[0].get_volume():.2f}")
 
@@ -709,10 +729,22 @@ def test_boolean_feature_export() -> None:
             "# Boolean boolean_cut:",
             "Part::Fuse",
             "Part::Cut",
+            "_Tools = doc.addObject('Part::MultiFuse'",
             "Visibility = True",
             "Visibility = False",
         ],
     )
+
+    script_content = script_path.read_text(encoding="utf-8")
+    multi_cut_match = re.search(
+        r"(?P<tools>Feature_\d+_Boolean_boolean_cut_Result_Tools) = "
+        r"doc\.addObject\('Part::MultiFuse'.*?"
+        r"\.Tool = (?P=tools)",
+        script_content,
+        flags=re.DOTALL,
+    )
+    if multi_cut_match is None:
+        raise AssertionError("Multi-tool cut does not reference its exported tool collection")
 
     print_export_summary(history, json_path, script_path)
 
